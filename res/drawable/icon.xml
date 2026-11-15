@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="rectangle">
+            <size android:width="96dp" android:height="96dp"/>
+            <corners android:radius="20dp"/>
+            <gradient android:angle="45" android:startColor="#7A2A9E" android:centerColor="#2F56D6" android:endColor="#6A2CB0"/>
+        </shape>
+    </item>
+    <item android:left="24dp" android:right="24dp" android:top="24dp" android:bottom="24dp" android:drawable="@drawable/glyph"/>
+</layer-list>
