@@ -22,6 +22,62 @@ android {
         }
     }
 
+    // If signing/glasshome.p12 is present, builds are signed with it and install over each other.
+    // Without it (for example in a public repository), Gradle's own debug key is used instead.
+    def keystore = file('signing/glasshome.p12')
+    signingConfigs {
+        release {
+            if (keystore.exists()) {
+                storeFile keystore
+                storeType 'pkcs12'
+                storePassword 'glasshome'
+                keyAlias 'glasshome'
+                keyPassword 'glasshome'
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig keystore.exists() ? signingConfigs.release : signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    lint {
+        checkReleaseBuilds false
+        abortOnError false
+    }
+}
+plugins {
+    id 'com.android.application' version '8.5.2'
+}
+
+android {
+    namespace 'com.vj.glasshome'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'com.vj.glasshome'
+        minSdk 26
+        targetSdk 34
+        versionCode 1
+        versionName '1.0'
+    }
+
+    sourceSets {
+        main {
+            manifest.srcFile 'AndroidManifest.xml'
+            java.srcDirs = ['src']
+            res.srcDirs = ['res']
+        }
+    }
+
     // Same key as the first APK, so new builds install over the old one.
     signingConfigs {
         release {
