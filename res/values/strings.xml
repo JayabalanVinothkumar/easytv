@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Glass Home</string>
+    <string name="a11y_label">Glass Home: Home button</string>
+    <string name="a11y_desc">Opens Glass Home when you press the Home button on the remote. It reads no screen content and only listens for the Home key.</string>
+</resources>
