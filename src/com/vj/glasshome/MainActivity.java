@@ -903,7 +903,7 @@ public class MainActivity extends Activity {
             return;
         }
         Collections.sort(out, new Comparator<Stock>() {
-            @Override public int compare(Stock x, Stock y) { return Double.compare(x.pct, y.pct); }
+            @Override public int compare(Stock x, Stock y) { return Double.compare(y.pct, x.pct); }
         });
         String asOf = "";
         if (latest > 0) {
@@ -984,9 +984,11 @@ public class MainActivity extends Activity {
             }
             stockDate.setText(stockAsOf);
             stockRows.removeAllViews();
-            // The five biggest falls, shown smallest loss first.
-            int from = Math.max(0, losers.size() - 5);
-            for (int i = from; i < losers.size(); i++) stockRows.addView(stockRow(losers.get(i), 20, 34, false));
+            // Biggest percentage loss first; the widget shows the top five.
+            Collections.sort(losers, new Comparator<Stock>() {
+                @Override public int compare(Stock x, Stock y) { return Double.compare(y.pct, x.pct); }
+            });
+            for (int i = 0; i < Math.min(5, losers.size()); i++) stockRows.addView(stockRow(losers.get(i), 20, 34, false));
             if (losers.isEmpty()) {
                 stockFoot.setText("No Nifty 50 stock is down");
             } else {
@@ -1026,7 +1028,7 @@ public class MainActivity extends Activity {
         LinearLayout list = new LinearLayout(this);
         list.setOrientation(LinearLayout.VERTICAL);
         list.setPadding(px(40), px(8), px(40), px(24));
-        TextView sub = text(stockAsOf + " · " + losers.size() + " stocks down · smallest to biggest loss", 19, DIM, "sans-serif");
+        TextView sub = text(stockAsOf + " · " + losers.size() + " stocks down · biggest loss first", 19, DIM, "sans-serif");
         sub.setPadding(0, 0, 0, px(14));
         list.addView(sub);
         for (Stock st : losers) list.addView(stockRow(st, 23, 52, true));
