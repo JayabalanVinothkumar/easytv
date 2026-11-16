@@ -133,6 +133,7 @@ public class MainActivity extends Activity {
     HorizontalScrollView favScroll;
     TextView favHint, goldPrice, goldTen, goldEight, goldFoot, stockDate, stockFoot;
     TextView wHi, wLo, wCond, wSub, tHi, tLo, tCond, tSub, tTitle;
+    LinearLayout hourRow;
 
     final Runnable ticker = new Runnable() {
         @Override public void run() {
@@ -448,7 +449,7 @@ public class MainActivity extends Activity {
         stock.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) { showStockList(); }
         });
-        LinearLayout.LayoutParams sl = lp(px(440), MATCH);
+        LinearLayout.LayoutParams sl = lp(px(420), MATCH);
         sl.rightMargin = px(24);
         top.addView(stock, sl);
 
@@ -470,7 +471,11 @@ public class MainActivity extends Activity {
         w1.addView(wCond);
         wSub = text("", 16, DIM, "sans-serif");
         w1.addView(wSub);
-        LinearLayout.LayoutParams w1p = lp(px(186), WRAP);
+        w1.addView(spacer());
+        hourRow = new LinearLayout(this);
+        hourRow.setOrientation(LinearLayout.HORIZONTAL);
+        w1.addView(hourRow, lp(MATCH, WRAP));
+        LinearLayout.LayoutParams w1p = lp(px(376), MATCH);
         w1p.rightMargin = px(16);
         top.addView(w1, w1p);
 
@@ -798,6 +803,7 @@ public class MainActivity extends Activity {
         try {
             String url = "https://api.open-meteo.com/v1/forecast?latitude=" + WEATHER_LAT + "&longitude=" + WEATHER_LON
                     + "&current=temperature_2m,weather_code"
+                    + "&hourly=temperature_2m,precipitation_probability"
                     + "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max"
                     + "&timezone=" + URLEncoder.encode(WEATHER_TZ, "UTF-8") + "&forecast_days=2";
             JSONObject j = new JSONObject(http(url));
@@ -806,6 +812,16 @@ public class MainActivity extends Activity {
             JSONArray hi = d.getJSONArray("temperature_2m_max"), lo = d.getJSONArray("temperature_2m_min");
             JSONArray code = d.getJSONArray("weather_code"), rain = d.getJSONArray("precipitation_probability_max");
             JSONArray days = d.getJSONArray("time");
+            // Today in eight three-hour steps: hour, temperature, chance of rain.
+            StringBuilder hours = new StringBuilder();
+            try {
+                JSONObject hr = j.getJSONObject("hourly");
+                JSONArray ht = hr.getJSONArray("temperature_2m"), hp = hr.getJSONArray("precipitation_probability");
+                for (int i = 0; i < 24 && i < ht.length(); i += 3) {
+                    if (hours.length() > 0) hours.append(';');
+                    hours.append(i < 10 ? "0" : "").append(i).append(',').append(deg(ht.getDouble(i))).append(',').append(hp.optInt(i, 0)).append('%');
+                }
+            } catch (Exception ignored) { }
             String tomorrow = "Tomorrow";
             try {
                 Date dt = new SimpleDateFormat("yyyy-MM-dd", Locale.UK).parse(days.getString(1));
@@ -814,7 +830,7 @@ public class MainActivity extends Activity {
             final String s = deg(hi.getDouble(0)) + "|" + deg(lo.getDouble(0)) + "|" + wmo(cur.optInt("weather_code", code.getInt(0)))
                     + "|Now " + deg(cur.getDouble("temperature_2m")) + " · rain " + rain.optInt(0, 0) + "%"
                     + "|" + deg(hi.getDouble(1)) + "|" + deg(lo.getDouble(1)) + "|" + wmo(code.getInt(1))
-                    + "|" + tomorrow + " · rain " + rain.optInt(1, 0) + "%";
+                    + "|" + tomorrow + " · rain " + rain.optInt(1, 0) + "%" + "|" + hours;
             prefs.edit().putString("weather", s).apply();
             ui.post(new Runnable() { @Override public void run() { showWeather(s); } });
         } catch (Exception e) {
@@ -934,6 +950,30 @@ public class MainActivity extends Activity {
             String[] p = s.split("\\|");
             wHi.setText(p[0]); wLo.setText(p[1]); wCond.setText(p[2]); wSub.setText(p[3]);
             tHi.setText(p[4]); tLo.setText(p[5]); tCond.setText(p[6]); tSub.setText(p[7]);
+            hourRow.removeAllViews();
+            if (p.length > 8 && p[8].length() > 0) {
+                int nowSlot = java.util.Calendar.getInstance(TimeZone.getTimeZone(WEATHER_TZ)).get(java.util.Calendar.HOUR_OF_DAY) / 3;
+                String[] slots = p[8].split(";");
+                for (int i = 0; i < slots.length; i++) {
+                    String[] f = slots[i].split(",");
+                    if (f.length < 3) continue;
+                    LinearLayout col = new LinearLayout(this);
+                    col.setOrientation(LinearLayout.VERTICAL);
+                    col.setPadding(0, px(8), 0, px(8));
+                    if (i == nowSlot) col.setBackground(glass(14, 0x2EFFFFFF, 0, 0));
+                    TextView hh = text(f[0], 15, DIM, "sans-serif");
+                    TextView tt = text(f[1], 19, WHITE, "sans-serif-medium");
+                    tt.setPadding(0, px(6), 0, px(6));
+                    TextView rr = text(f[2], 14, SKY, "sans-serif");
+                    hh.setGravity(Gravity.CENTER);
+                    tt.setGravity(Gravity.CENTER);
+                    rr.setGravity(Gravity.CENTER);
+                    col.addView(hh);
+                    col.addView(tt);
+                    col.addView(rr);
+                    hourRow.addView(col, new LinearLayout.LayoutParams(0, WRAP, 1f));
+                }
+            }
         } catch (Exception ignored) { }
     }
 
