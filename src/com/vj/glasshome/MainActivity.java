@@ -1,0 +1,1045 @@
+package com.vj.glasshome;
+
+import android.app.Activity;
+import android.app.AlertDialog;
+import android.content.ComponentName;
+import android.content.DialogInterface;
+import android.content.Intent;
+import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
+import android.content.pm.ResolveInfo;
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
+import android.graphics.Color;
+import android.graphics.Outline;
+import android.graphics.Paint;
+import android.graphics.RadialGradient;
+import android.graphics.Shader;
+import android.graphics.Typeface;
+import android.graphics.drawable.Drawable;
+import android.graphics.drawable.GradientDrawable;
+import android.net.Uri;
+import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.provider.Settings;
+import android.text.TextUtils;
+import android.util.TypedValue;
+import android.view.Gravity;
+import android.view.KeyEvent;
+import android.view.View;
+import android.view.ViewGroup;
+import android.view.ViewOutlineProvider;
+import android.widget.FrameLayout;
+import android.widget.HorizontalScrollView;
+import android.widget.ImageView;
+import android.widget.LinearLayout;
+import android.widget.ScrollView;
+import android.widget.TextClock;
+import android.widget.TextView;
+import android.widget.Toast;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.net.URLEncoder;
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.Date;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.TimeZone;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+/**
+ * Glass Home: a light launcher for Android TV / Google TV.
+ * One screen, no content rows, no ads. All layout is built in code and sized
+ * against a 1920x1080 design, so it looks the same on 1080p and 4K panels.
+ */
+public class MainActivity extends Activity {
+
+    // ---- Things you may want to change -------------------------------------------------
+    static final double WEATHER_LAT = 52.52, WEATHER_LON = 13.405;   // Berlin
+    static final String WEATHER_PLACE = "Berlin";
+    static final String WEATHER_TZ = "Europe/Berlin";
+    static final String[] GOLD_URLS = {
+            "https://www.goodreturns.in/gold-rates/chennai.html",
+            "https://groww.in/gold-rates/gold-rate-today-in-chennai"
+    };
+    static final String[] GOLD_SOURCES = {"Goodreturns", "Groww"};
+    static final long REFRESH_MS = 15 * 60 * 1000L;
+    /** Nifty 50 members: Yahoo Finance symbol (without .NS), display name. */
+    static final String[][] STOCKS = {
+            {"ADANIENT", "Adani Enterprises"}, {"ADANIPORTS", "Adani Ports"}, {"APOLLOHOSP", "Apollo Hospitals"},
+            {"ASIANPAINT", "Asian Paints"}, {"AXISBANK", "Axis Bank"}, {"BAJAJ-AUTO", "Bajaj Auto"},
+            {"BAJFINANCE", "Bajaj Finance"}, {"BAJAJFINSV", "Bajaj Finserv"}, {"BEL", "Bharat Electronics"},
+            {"BHARTIARTL", "Bharti Airtel"}, {"CIPLA", "Cipla"}, {"COALINDIA", "Coal India"},
+            {"DRREDDY", "Dr Reddy's"}, {"EICHERMOT", "Eicher Motors"}, {"ETERNAL", "Eternal"},
+            {"GRASIM", "Grasim Industries"}, {"HCLTECH", "HCL Tech"}, {"HDFCBANK", "HDFC Bank"},
+            {"HDFCLIFE", "HDFC Life"}, {"HINDALCO", "Hindalco Industries"}, {"HINDUNILVR", "Hindustan Unilever"},
+            {"ICICIBANK", "ICICI Bank"}, {"INDIGO", "InterGlobe Aviation"}, {"INFY", "Infosys"},
+            {"ITC", "ITC"}, {"JIOFIN", "Jio Financial"}, {"JSWSTEEL", "JSW Steel"},
+            {"KOTAKBANK", "Kotak Mahindra Bank"}, {"LT", "Larsen & Toubro"}, {"M&M", "Mahindra & Mahindra"},
+            {"MARUTI", "Maruti Suzuki"}, {"MAXHEALTH", "Max Healthcare"}, {"NESTLEIND", "Nestle India"},
+            {"NTPC", "NTPC"}, {"ONGC", "ONGC"}, {"POWERGRID", "Power Grid"},
+            {"RELIANCE", "Reliance Industries"}, {"SBILIFE", "SBI Life"}, {"SBIN", "State Bank of India"},
+            {"SHRIRAMFIN", "Shriram Finance"}, {"SUNPHARMA", "Sun Pharma"}, {"TATACONSUM", "Tata Consumer"},
+            {"TMPV", "Tata Motors PV"}, {"TATASTEEL", "Tata Steel"}, {"TCS", "TCS"},
+            {"TECHM", "Tech Mahindra"}, {"TITAN", "Titan"}, {"TRENT", "Trent"},
+            {"ULTRACEMCO", "UltraTech Cement"}, {"WIPRO", "Wipro"}
+    };
+    // -----------------------------------------------------------------------------------
+
+    static final int WHITE = 0xFFFFFFFF, SOFT = 0xFFE6E9F0, DIM = 0xFFC9CEDB, LOSS = 0xFFFFA59A;
+    static final int GOLD = 0xFFF0C56A, SKY = 0xFF9FD0FF;
+    static final String UA = "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36";
+
+    static class AppItem {
+        String pkg, label;
+        Drawable banner, icon;
+        Intent launch;
+    }
+
+    static class Stock {
+        String name;
+        double price, change, pct;
+    }
+
+    float u = 1f;
+    SharedPreferences prefs;
+    final Handler ui = new Handler(Looper.getMainLooper());
+    final ExecutorService io = Executors.newSingleThreadExecutor();
+    final ExecutorService appIo = Executors.newSingleThreadExecutor();
+    final Map<String, AppItem> apps = new LinkedHashMap<String, AppItem>();
+    final List<Stock> losers = new ArrayList<Stock>();
+    String stockAsOf = "";
+    long lastFetch = 0;
+    boolean resumed = false;
+    String appSignature = "";
+
+    LinearLayout favRow, allRow, stockRows;
+    HorizontalScrollView favScroll;
+    TextView favHint, goldPrice, goldTen, goldEight, goldFoot, stockDate, stockFoot;
+    TextView wHi, wLo, wCond, wSub, tHi, tLo, tCond, tSub, tTitle;
+
+    final Runnable ticker = new Runnable() {
+        @Override public void run() {
+            if (!resumed) return;
+            refreshData();
+            ui.postDelayed(this, REFRESH_MS);
+        }
+    };
+
+    // ---- lifecycle --------------------------------------------------------------------
+
+    @Override protected void onCreate(Bundle b) {
+        super.onCreate(b);
+        prefs = getSharedPreferences("glasshome", MODE_PRIVATE);
+        int w = getResources().getDisplayMetrics().widthPixels;
+        int h = getResources().getDisplayMetrics().heightPixels;
+        u = Math.min(w / 1920f, h / 1080f);
+        if (u <= 0) u = 1f;
+        buildUi();
+        showCached();
+    }
+
+    @Override protected void onResume() {
+        super.onResume();
+        resumed = true;
+        loadApps();
+        ui.removeCallbacks(ticker);
+        long wait = lastFetch == 0 ? 0 : Math.max(0, REFRESH_MS - (System.currentTimeMillis() - lastFetch));
+        ui.postDelayed(ticker, wait);
+    }
+
+    @Override protected void onPause() {
+        super.onPause();
+        resumed = false;
+        ui.removeCallbacks(ticker);
+    }
+
+    @Override protected void onDestroy() {
+        super.onDestroy();
+        io.shutdownNow();
+        appIo.shutdownNow();
+    }
+
+    /** Home screen: Back does nothing. */
+    @Override public void onBackPressed() { }
+
+    // ---- small helpers ----------------------------------------------------------------
+
+    int px(float v) { return Math.round(v * u); }
+
+    TextView text(String s, float size, int color, String family) {
+        TextView t = new TextView(this);
+        t.setText(s);
+        t.setTextSize(TypedValue.COMPLEX_UNIT_PX, size * u);
+        t.setTextColor(color);
+        t.setTypeface(Typeface.create(family, Typeface.NORMAL));
+        t.setIncludeFontPadding(false);
+        return t;
+    }
+
+    TextView caps(String s, float size, int color) {
+        TextView t = text(s, size, color, "sans-serif-medium");
+        t.setAllCaps(true);
+        t.setLetterSpacing(0.08f);
+        return t;
+    }
+
+    GradientDrawable glass(float radius, int fill, int stroke, float strokeW) {
+        GradientDrawable g = new GradientDrawable();
+        g.setColor(fill);
+        g.setCornerRadius(radius * u);
+        if (strokeW > 0) g.setStroke(Math.max(1, px(strokeW)), stroke);
+        return g;
+    }
+
+    void round(View v, final float radius) {
+        v.setOutlineProvider(new ViewOutlineProvider() {
+            @Override public void getOutline(View view, Outline o) {
+                o.setRoundRect(0, 0, view.getWidth(), view.getHeight(), radius * u);
+            }
+        });
+        v.setClipToOutline(true);
+    }
+
+    LinearLayout.LayoutParams lp(int w, int h) { return new LinearLayout.LayoutParams(w, h); }
+
+    static final int MATCH = ViewGroup.LayoutParams.MATCH_PARENT, WRAP = ViewGroup.LayoutParams.WRAP_CONTENT;
+
+    void toast(String s) { Toast.makeText(this, s, Toast.LENGTH_LONG).show(); }
+
+    // ---- wallpaper --------------------------------------------------------------------
+
+    /** Drawn once at low resolution and stretched: soft by nature, no live blur needed. */
+    Bitmap makeWallpaper() {
+        int w = 480, h = 270;
+        Bitmap bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+        Canvas c = new Canvas(bmp);
+        c.drawColor(0xFF05050B);
+        blob(c, w, h, 0.22f, 0.30f, 0.38f, 0.34f, 0xD9C43ACE);
+        blob(c, w, h, 0.50f, 0.22f, 0.34f, 0.38f, 0xE63460EC);
+        blob(c, w, h, 0.78f, 0.34f, 0.40f, 0.36f, 0xD99638DC);
+        blob(c, w, h, 0.62f, 0.52f, 0.30f, 0.26f, 0x8C1E96E6);
+        blob(c, w, h, 0.08f, 0.56f, 0.26f, 0.24f, 0x995A32C8);
+        return bmp;
+    }
+
+    void blob(Canvas c, int w, int h, float cx, float cy, float rx, float ry, int color) {
+        Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+        p.setDither(true);
+        p.setShader(new RadialGradient(0, 0, 1f, color, color & 0x00FFFFFF, Shader.TileMode.CLAMP));
+        c.save();
+        c.translate(cx * w, cy * h);
+        c.scale(rx * w, ry * h);
+        c.drawCircle(0, 0, 1f, p);
+        c.restore();
+    }
+
+    // ---- layout -----------------------------------------------------------------------
+
+    void buildUi() {
+        FrameLayout root = new FrameLayout(this);
+        root.setBackgroundColor(0xFF05050B);
+
+        ImageView wall = new ImageView(this);
+        wall.setScaleType(ImageView.ScaleType.FIT_XY);
+        wall.setImageBitmap(makeWallpaper());
+        root.addView(wall, new FrameLayout.LayoutParams(MATCH, MATCH));
+
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        col.setPadding(px(80), px(44), px(80), px(30));
+        col.setClipChildren(false);
+        col.setClipToPadding(false);
+        root.addView(col, new FrameLayout.LayoutParams(MATCH, MATCH));
+
+        col.addView(buildTop(), lp(MATCH, px(300)));
+
+        // Favourites shelf
+        LinearLayout shelf = new LinearLayout(this);
+        shelf.setOrientation(LinearLayout.VERTICAL);
+        shelf.setBackground(glass(36, 0x17FFFFFF, 0x33FFFFFF, 1));
+        shelf.setPadding(px(12), px(26), px(12), px(12));
+        shelf.setClipChildren(false);
+        shelf.setClipToPadding(false);
+        TextView favTitle = text("Favourites", 22, SOFT, "sans-serif-medium");
+        favTitle.setPadding(px(16), 0, 0, px(6));
+        shelf.addView(favTitle, lp(WRAP, WRAP));
+        FrameLayout favHolder = new FrameLayout(this);
+        favHolder.setClipChildren(false);
+        favScroll = new HorizontalScrollView(this);
+        favRow = makeRow(favScroll);
+        favHolder.addView(favScroll, new FrameLayout.LayoutParams(MATCH, WRAP));
+        favHint = text("Hold OK on any app below to add it here", 22, SOFT, "sans-serif");
+        favHint.setGravity(Gravity.CENTER);
+        favHolder.addView(favHint, new FrameLayout.LayoutParams(MATCH, px(209)));
+        shelf.addView(favHolder, lp(MATCH, WRAP));
+        LinearLayout.LayoutParams sp = lp(MATCH, WRAP);
+        sp.topMargin = px(28);
+        col.addView(shelf, sp);
+
+        // More apps
+        LinearLayout more = new LinearLayout(this);
+        more.setOrientation(LinearLayout.VERTICAL);
+        more.setPadding(px(12), 0, px(12), 0);
+        more.setClipChildren(false);
+        more.setClipToPadding(false);
+        TextView moreTitle = text("More apps", 22, SOFT, "sans-serif-medium");
+        moreTitle.setPadding(px(16), 0, 0, px(6));
+        more.addView(moreTitle, lp(WRAP, WRAP));
+        HorizontalScrollView allScroll = new HorizontalScrollView(this);
+        allRow = makeRow(allScroll);
+        more.addView(allScroll, lp(MATCH, WRAP));
+        LinearLayout.LayoutParams mp = lp(MATCH, WRAP);
+        mp.topMargin = px(28);
+        col.addView(more, mp);
+
+        // Bottom bar
+        LinearLayout bar = new LinearLayout(this);
+        bar.setGravity(Gravity.CENTER);
+        bar.addView(pill("TV settings", new Runnable() {
+            @Override public void run() { openSettings(Settings.ACTION_SETTINGS); }
+        }));
+        bar.addView(pill("Home button setup", new Runnable() {
+            @Override public void run() {
+                toast("Turn on \"Glass Home: Home button\" under Accessibility");
+                openSettings(Settings.ACTION_ACCESSIBILITY_SETTINGS);
+            }
+        }));
+        bar.addView(pill("Refresh data", new Runnable() {
+            @Override public void run() { toast("Refreshing"); refreshData(); }
+        }));
+        LinearLayout.LayoutParams bp = lp(MATCH, px(48));
+        bp.topMargin = px(14);
+        col.addView(bar, bp);
+
+        setContentView(root);
+    }
+
+    LinearLayout makeRow(HorizontalScrollView sv) {
+        sv.setHorizontalScrollBarEnabled(false);
+        sv.setClipToPadding(false);
+        sv.setClipChildren(false);
+        sv.setPadding(px(16), px(12), px(16), px(12));
+        sv.setFocusable(false);
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setClipChildren(false);
+        row.setClipToPadding(false);
+        sv.addView(row, new FrameLayout.LayoutParams(WRAP, WRAP));
+        return row;
+    }
+
+    LinearLayout card(int padH, int padV, float radius) {
+        LinearLayout c = new LinearLayout(this);
+        c.setOrientation(LinearLayout.VERTICAL);
+        c.setPadding(px(padH), px(padV), px(padH), px(padV));
+        c.setBackground(glass(radius, 0x800A0A16, 0x33FFFFFF, 1));
+        return c;
+    }
+
+    View spacer() {
+        View v = new View(this);
+        v.setLayoutParams(new LinearLayout.LayoutParams(0, 0, 1f));
+        return v;
+    }
+
+    LinearLayout pair(String left, TextView right) {
+        LinearLayout r = new LinearLayout(this);
+        r.setOrientation(LinearLayout.HORIZONTAL);
+        TextView l = text(left, 19, DIM, "sans-serif");
+        r.addView(l, new LinearLayout.LayoutParams(0, WRAP, 1f));
+        r.addView(right, lp(WRAP, WRAP));
+        r.setPadding(0, px(3), 0, px(3));
+        return r;
+    }
+
+    View buildTop() {
+        LinearLayout top = new LinearLayout(this);
+        top.setOrientation(LinearLayout.HORIZONTAL);
+        top.setClipChildren(false);
+
+        // Clock
+        LinearLayout clock = new LinearLayout(this);
+        clock.setOrientation(LinearLayout.VERTICAL);
+        clock.setPadding(px(28), px(6), 0, 0);
+        TextClock time = new TextClock(this);
+        time.setFormat24Hour("HH:mm");
+        time.setFormat12Hour("HH:mm");
+        time.setTextSize(TypedValue.COMPLEX_UNIT_PX, 120 * u);
+        time.setTextColor(WHITE);
+        time.setTypeface(Typeface.create("sans-serif-light", Typeface.NORMAL));
+        time.setIncludeFontPadding(false);
+        time.setLetterSpacing(-0.02f);
+        clock.addView(time, lp(WRAP, WRAP));
+        TextClock date = new TextClock(this);
+        date.setFormat24Hour("EEEE d MMMM");
+        date.setFormat12Hour("EEEE d MMMM");
+        date.setTextSize(TypedValue.COMPLEX_UNIT_PX, 22 * u);
+        date.setTextColor(SOFT);
+        date.setAllCaps(true);
+        date.setLetterSpacing(0.12f);
+        date.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        LinearLayout.LayoutParams dp = lp(WRAP, WRAP);
+        dp.topMargin = px(10);
+        clock.addView(date, dp);
+        top.addView(clock, new LinearLayout.LayoutParams(0, MATCH, 1f));
+
+        // Gold
+        LinearLayout gold = card(24, 22, 28);
+        gold.addView(caps("22K gold · Chennai", 17, GOLD));
+        goldPrice = text("—", 60, WHITE, "sans-serif-medium");
+        LinearLayout.LayoutParams gp = lp(WRAP, WRAP);
+        gp.topMargin = px(14);
+        gold.addView(goldPrice, gp);
+        gold.addView(text("per gram", 20, SOFT, "sans-serif"));
+        gold.addView(spacer());
+        goldEight = text("—", 19, WHITE, "sans-serif-medium");
+        goldTen = text("—", 19, WHITE, "sans-serif-medium");
+        gold.addView(pair("8 grams", goldEight));
+        gold.addView(pair("10 grams", goldTen));
+        goldFoot = text("Loading", 15, DIM, "sans-serif");
+        LinearLayout.LayoutParams gf = lp(WRAP, WRAP);
+        gf.topMargin = px(6);
+        gold.addView(goldFoot, gf);
+        LinearLayout.LayoutParams gl = lp(px(300), MATCH);
+        gl.rightMargin = px(24);
+        top.addView(gold, gl);
+
+        // Stocks
+        final LinearLayout stock = card(24, 22, 28);
+        LinearLayout head = new LinearLayout(this);
+        head.setOrientation(LinearLayout.HORIZONTAL);
+        head.addView(caps("Nifty 50 · fallers", 17, LOSS), new LinearLayout.LayoutParams(0, WRAP, 1f));
+        stockDate = text("", 15, DIM, "sans-serif");
+        head.addView(stockDate, lp(WRAP, WRAP));
+        stock.addView(head, lp(MATCH, WRAP));
+        stockRows = new LinearLayout(this);
+        stockRows.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams srp = lp(MATCH, WRAP);
+        srp.topMargin = px(12);
+        stock.addView(stockRows, srp);
+        stock.addView(spacer());
+        stockFoot = text("Loading", 17, SOFT, "sans-serif");
+        stock.addView(stockFoot, lp(MATCH, WRAP));
+        stock.setFocusable(true);
+        stock.setClickable(true);
+        stock.setOnFocusChangeListener(new View.OnFocusChangeListener() {
+            @Override public void onFocusChange(View v, boolean f) {
+                stock.setBackground(f ? glass(28, 0xB30A0A16, 0xE6FFFFFF, 3) : glass(28, 0x800A0A16, 0x33FFFFFF, 1));
+                stock.animate().scaleX(f ? 1.04f : 1f).scaleY(f ? 1.04f : 1f).setDuration(150).start();
+            }
+        });
+        stock.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) { showStockList(); }
+        });
+        LinearLayout.LayoutParams sl = lp(px(440), MATCH);
+        sl.rightMargin = px(24);
+        top.addView(stock, sl);
+
+        // Weather today
+        LinearLayout w1 = card(20, 18, 24);
+        w1.addView(caps(WEATHER_PLACE + " · today", 15, SKY));
+        LinearLayout r1 = new LinearLayout(this);
+        r1.setGravity(Gravity.BOTTOM);
+        wHi = text("—", 52, WHITE, "sans-serif-medium");
+        wLo = text("", 24, DIM, "sans-serif");
+        wLo.setPadding(px(10), 0, 0, px(6));
+        r1.addView(wHi);
+        r1.addView(wLo);
+        LinearLayout.LayoutParams r1p = lp(WRAP, WRAP);
+        r1p.topMargin = px(10);
+        w1.addView(r1, r1p);
+        wCond = text("Loading", 17, SOFT, "sans-serif");
+        wCond.setPadding(0, px(8), 0, px(2));
+        w1.addView(wCond);
+        wSub = text("", 16, DIM, "sans-serif");
+        w1.addView(wSub);
+        LinearLayout.LayoutParams w1p = lp(px(186), WRAP);
+        w1p.rightMargin = px(16);
+        top.addView(w1, w1p);
+
+        // Weather tomorrow
+        LinearLayout w2 = card(20, 18, 24);
+        tTitle = caps("Tomorrow", 15, SKY);
+        w2.addView(tTitle);
+        LinearLayout r2 = new LinearLayout(this);
+        r2.setGravity(Gravity.BOTTOM);
+        tHi = text("—", 52, WHITE, "sans-serif-medium");
+        tLo = text("", 24, DIM, "sans-serif");
+        tLo.setPadding(px(10), 0, 0, px(6));
+        r2.addView(tHi);
+        r2.addView(tLo);
+        LinearLayout.LayoutParams r2p = lp(WRAP, WRAP);
+        r2p.topMargin = px(10);
+        w2.addView(r2, r2p);
+        tCond = text("Loading", 17, SOFT, "sans-serif");
+        tCond.setPadding(0, px(8), 0, px(2));
+        w2.addView(tCond);
+        tSub = text("", 16, DIM, "sans-serif");
+        w2.addView(tSub);
+        top.addView(w2, lp(px(186), WRAP));
+
+        return top;
+    }
+
+    TextView pill(String label, final Runnable action) {
+        final TextView t = text(label, 18, SOFT, "sans-serif-medium");
+        t.setGravity(Gravity.CENTER);
+        t.setPadding(px(26), 0, px(26), 0);
+        t.setBackground(glass(24, 0x1AFFFFFF, 0x33FFFFFF, 1));
+        t.setFocusable(true);
+        t.setClickable(true);
+        t.setOnFocusChangeListener(new View.OnFocusChangeListener() {
+            @Override public void onFocusChange(View v, boolean f) {
+                t.setBackground(f ? glass(24, 0xE6FFFFFF, 0, 0) : glass(24, 0x1AFFFFFF, 0x33FFFFFF, 1));
+                t.setTextColor(f ? 0xFF10131C : SOFT);
+            }
+        });
+        t.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) { action.run(); }
+        });
+        LinearLayout.LayoutParams p = lp(WRAP, px(46));
+        p.leftMargin = px(6);
+        p.rightMargin = px(6);
+        t.setLayoutParams(p);
+        return t;
+    }
+
+    void openSettings(String action) {
+        try {
+            startActivity(new Intent(action).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        } catch (Exception e) {
+            try {
+                startActivity(new Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+            } catch (Exception e2) {
+                toast("Could not open Settings");
+            }
+        }
+    }
+
+    // ---- apps -------------------------------------------------------------------------
+
+    void loadApps() {
+        appIo.execute(new Runnable() {
+            @Override public void run() {
+                try {
+                    final Map<String, AppItem> found = queryApps();
+                    StringBuilder sig = new StringBuilder();
+                    for (String k : found.keySet()) sig.append(k).append(';');
+                    final String s = sig.toString();
+                    ui.post(new Runnable() {
+                        @Override public void run() {
+                            if (s.equals(appSignature) && favRow.getChildCount() + allRow.getChildCount() > 0) return;
+                            appSignature = s;
+                            apps.clear();
+                            apps.putAll(found);
+                            rebuildRows(null);
+                        }
+                    });
+                } catch (Exception ignored) { }
+            }
+        });
+    }
+
+    Map<String, AppItem> queryApps() {
+        PackageManager pm = getPackageManager();
+        List<AppItem> list = new ArrayList<AppItem>();
+        Map<String, Boolean> seen = new LinkedHashMap<String, Boolean>();
+        String[] cats = {Intent.CATEGORY_LEANBACK_LAUNCHER, Intent.CATEGORY_LAUNCHER};
+        for (String cat : cats) {
+            Intent q = new Intent(Intent.ACTION_MAIN).addCategory(cat);
+            List<ResolveInfo> res = pm.queryIntentActivities(q, 0);
+            if (res == null) continue;
+            for (ResolveInfo r : res) {
+                if (r.activityInfo == null) continue;
+                String pkg = r.activityInfo.packageName;
+                if (pkg == null || pkg.equals(getPackageName()) || seen.containsKey(pkg)) continue;
+                seen.put(pkg, true);
+                AppItem a = new AppItem();
+                a.pkg = pkg;
+                CharSequence l = r.loadLabel(pm);
+                a.label = l == null ? pkg : l.toString();
+                try { a.banner = r.activityInfo.loadBanner(pm); } catch (Exception ignored) { }
+                if (a.banner == null) {
+                    try { a.banner = pm.getApplicationBanner(r.activityInfo.applicationInfo); } catch (Exception ignored) { }
+                }
+                if (a.banner == null) {
+                    try { a.icon = r.loadIcon(pm); } catch (Exception ignored) { }
+                }
+                a.launch = new Intent(Intent.ACTION_MAIN).addCategory(cat)
+                        .setComponent(new ComponentName(pkg, r.activityInfo.name))
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
+                list.add(a);
+            }
+        }
+        Collections.sort(list, new Comparator<AppItem>() {
+            @Override public int compare(AppItem x, AppItem y) { return x.label.compareToIgnoreCase(y.label); }
+        });
+        Map<String, AppItem> out = new LinkedHashMap<String, AppItem>();
+        for (AppItem a : list) out.put(a.pkg, a);
+        return out;
+    }
+
+    List<String> getFavs() {
+        String s = prefs.getString("favs", "");
+        List<String> out = new ArrayList<String>();
+        if (s.length() > 0) out.addAll(Arrays.asList(s.split(",")));
+        return out;
+    }
+
+    void saveFavs(List<String> favs) {
+        prefs.edit().putString("favs", TextUtils.join(",", favs)).apply();
+    }
+
+    void rebuildRows(String focusPkg) {
+        favRow.removeAllViews();
+        allRow.removeAllViews();
+        List<String> favs = getFavs();
+        for (String p : favs) {
+            AppItem a = apps.get(p);
+            if (a != null) favRow.addView(makeTile(a));
+        }
+        for (AppItem a : apps.values()) {
+            if (!favs.contains(a.pkg)) allRow.addView(makeTile(a));
+        }
+        boolean empty = favRow.getChildCount() == 0;
+        favHint.setVisibility(empty ? View.VISIBLE : View.GONE);
+        favScroll.setVisibility(empty ? View.INVISIBLE : View.VISIBLE);
+
+        View target = null;
+        if (focusPkg != null) {
+            target = favRow.findViewWithTag(focusPkg);
+            if (target == null) target = allRow.findViewWithTag(focusPkg);
+        }
+        if (target == null && favRow.getChildCount() > 0) target = favRow.getChildAt(0);
+        if (target == null && allRow.getChildCount() > 0) target = allRow.getChildAt(0);
+        if (target != null) target.requestFocus();
+    }
+
+    int tint(String key) {
+        float hue = (key.hashCode() & 0x7fffffff) % 360;
+        int c = Color.HSVToColor(new float[]{hue, 0.55f, 0.55f});
+        return (c & 0x00FFFFFF) | 0xB0000000;
+    }
+
+    View makeTile(final AppItem a) {
+        final LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setGravity(Gravity.CENTER_HORIZONTAL);
+        box.setClipChildren(false);
+        box.setTag(a.pkg);
+        box.setFocusable(true);
+        box.setClickable(true);
+
+        final FrameLayout frame = new FrameLayout(this);
+        if (a.banner != null) {
+            ImageView iv = new ImageView(this);
+            iv.setScaleType(ImageView.ScaleType.CENTER_CROP);
+            iv.setImageDrawable(a.banner);
+            frame.addView(iv, new FrameLayout.LayoutParams(MATCH, MATCH));
+        } else {
+            frame.setBackgroundColor(tint(a.pkg));
+            if (a.icon != null) {
+                ImageView iv = new ImageView(this);
+                iv.setImageDrawable(a.icon);
+                FrameLayout.LayoutParams ip = new FrameLayout.LayoutParams(px(84), px(84));
+                ip.gravity = Gravity.CENTER;
+                frame.addView(iv, ip);
+            }
+        }
+        round(frame, 24);
+        box.addView(frame, lp(px(257), px(145)));
+
+        final TextView label = text(a.label, 19, SOFT, "sans-serif-medium");
+        label.setSingleLine(true);
+        label.setEllipsize(TextUtils.TruncateAt.END);
+        label.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams lpL = lp(px(257), px(26));
+        lpL.topMargin = px(14);
+        box.addView(label, lpL);
+
+        box.setOnFocusChangeListener(new View.OnFocusChangeListener() {
+            @Override public void onFocusChange(View v, boolean f) {
+                frame.animate().scaleX(f ? 1.12f : 1f).scaleY(f ? 1.12f : 1f).setDuration(150).start();
+                frame.setForeground(f ? glass(24, 0x00000000, 0xE6FFFFFF, 4) : null);
+                frame.setTranslationZ(f ? px(12) : 0);
+                label.setTextColor(f ? WHITE : SOFT);
+            }
+        });
+        box.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                try {
+                    startActivity(a.launch);
+                } catch (Exception e) {
+                    toast("Could not open " + a.label);
+                }
+            }
+        });
+        box.setOnLongClickListener(new View.OnLongClickListener() {
+            @Override public boolean onLongClick(View v) { showAppMenu(a); return true; }
+        });
+        box.setOnKeyListener(new View.OnKeyListener() {
+            @Override public boolean onKey(View v, int code, KeyEvent e) {
+                if (code == KeyEvent.KEYCODE_MENU && e.getAction() == KeyEvent.ACTION_UP) {
+                    showAppMenu(a);
+                    return true;
+                }
+                return false;
+            }
+        });
+
+        LinearLayout.LayoutParams p = lp(WRAP, WRAP);
+        p.rightMargin = px(32);
+        box.setLayoutParams(p);
+        return box;
+    }
+
+    void showAppMenu(final AppItem a) {
+        final List<String> favs = getFavs();
+        final int idx = favs.indexOf(a.pkg);
+        final List<String> items = new ArrayList<String>();
+        if (idx >= 0) {
+            items.add("Remove from favourites");
+            if (idx > 0) items.add("Move left");
+            if (idx < favs.size() - 1) items.add("Move right");
+        } else {
+            items.add("Add to favourites");
+        }
+        items.add("App info");
+        items.add("Uninstall");
+        new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setTitle(a.label)
+                .setItems(items.toArray(new String[0]), new DialogInterface.OnClickListener() {
+                    @Override public void onClick(DialogInterface d, int which) {
+                        String pick = items.get(which);
+                        if (pick.equals("Add to favourites")) {
+                            favs.add(a.pkg);
+                        } else if (pick.equals("Remove from favourites")) {
+                            favs.remove(a.pkg);
+                        } else if (pick.equals("Move left")) {
+                            Collections.swap(favs, idx, idx - 1);
+                        } else if (pick.equals("Move right")) {
+                            Collections.swap(favs, idx, idx + 1);
+                        } else if (pick.equals("App info")) {
+                            try {
+                                startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                        Uri.parse("package:" + a.pkg)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+                            } catch (Exception e) { toast("Could not open app info"); }
+                            return;
+                        } else {
+                            try {
+                                startActivity(new Intent(Intent.ACTION_DELETE,
+                                        Uri.parse("package:" + a.pkg)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+                            } catch (Exception e) { toast("Could not start uninstall"); }
+                            return;
+                        }
+                        saveFavs(favs);
+                        rebuildRows(a.pkg);
+                    }
+                })
+                .show();
+    }
+
+    // ---- data: fetch ------------------------------------------------------------------
+
+    void refreshData() {
+        lastFetch = System.currentTimeMillis();
+        io.execute(new Runnable() { @Override public void run() { fetchWeather(); } });
+        io.execute(new Runnable() { @Override public void run() { fetchGold(); } });
+        io.execute(new Runnable() { @Override public void run() { fetchStocks(); } });
+    }
+
+    String http(String url) throws Exception {
+        HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
+        try {
+            c.setConnectTimeout(8000);
+            c.setReadTimeout(12000);
+            c.setRequestProperty("User-Agent", UA);
+            c.setRequestProperty("Accept", "text/html,application/json;q=0.9,*/*;q=0.8");
+            c.setRequestProperty("Accept-Language", "en-GB,en;q=0.9");
+            int code = c.getResponseCode();
+            if (code < 200 || code >= 300) throw new Exception("HTTP " + code);
+            InputStream in = c.getInputStream();
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            byte[] buf = new byte[16384];
+            int n, total = 0;
+            while ((n = in.read(buf)) > 0 && total < 4000000) {
+                out.write(buf, 0, n);
+                total += n;
+            }
+            in.close();
+            return out.toString("UTF-8");
+        } finally {
+            c.disconnect();
+        }
+    }
+
+    String now() {
+        return new SimpleDateFormat("HH:mm", Locale.UK).format(new Date());
+    }
+
+    void fetchWeather() {
+        try {
+            String url = "https://api.open-meteo.com/v1/forecast?latitude=" + WEATHER_LAT + "&longitude=" + WEATHER_LON
+                    + "&current=temperature_2m,weather_code"
+                    + "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max"
+                    + "&timezone=" + URLEncoder.encode(WEATHER_TZ, "UTF-8") + "&forecast_days=2";
+            JSONObject j = new JSONObject(http(url));
+            JSONObject cur = j.getJSONObject("current");
+            JSONObject d = j.getJSONObject("daily");
+            JSONArray hi = d.getJSONArray("temperature_2m_max"), lo = d.getJSONArray("temperature_2m_min");
+            JSONArray code = d.getJSONArray("weather_code"), rain = d.getJSONArray("precipitation_probability_max");
+            JSONArray days = d.getJSONArray("time");
+            String tomorrow = "Tomorrow";
+            try {
+                Date dt = new SimpleDateFormat("yyyy-MM-dd", Locale.UK).parse(days.getString(1));
+                tomorrow = new SimpleDateFormat("EEEE", Locale.UK).format(dt);
+            } catch (Exception ignored) { }
+            final String s = deg(hi.getDouble(0)) + "|" + deg(lo.getDouble(0)) + "|" + wmo(cur.optInt("weather_code", code.getInt(0)))
+                    + "|Now " + deg(cur.getDouble("temperature_2m")) + " · rain " + rain.optInt(0, 0) + "%"
+                    + "|" + deg(hi.getDouble(1)) + "|" + deg(lo.getDouble(1)) + "|" + wmo(code.getInt(1))
+                    + "|" + tomorrow + " · rain " + rain.optInt(1, 0) + "%";
+            prefs.edit().putString("weather", s).apply();
+            ui.post(new Runnable() { @Override public void run() { showWeather(s); } });
+        } catch (Exception e) {
+            ui.post(new Runnable() { @Override public void run() {
+                if (prefs.getString("weather", "").length() == 0) { wCond.setText("No data"); tCond.setText("No data"); }
+            } });
+        }
+    }
+
+    static String deg(double v) {
+        long r = Math.round(v);
+        return (r == 0 ? 0 : r) + "°";
+    }
+
+    static String wmo(int c) {
+        if (c == 0) return "Clear";
+        if (c == 1) return "Mostly clear";
+        if (c == 2) return "Partly cloudy";
+        if (c == 3) return "Cloudy";
+        if (c == 45 || c == 48) return "Fog";
+        if (c >= 51 && c <= 57) return "Drizzle";
+        if (c >= 61 && c <= 67) return "Rain";
+        if (c >= 71 && c <= 77) return "Snow";
+        if (c >= 80 && c <= 82) return "Showers";
+        if (c == 85 || c == 86) return "Snow showers";
+        if (c >= 95) return "Thunderstorm";
+        return "Cloudy";
+    }
+
+    void fetchGold() {
+        Pattern a = Pattern.compile("([0-9][0-9,]{3,8})(?:\\.[0-9]+)?\\s*per gram for 22\\s*(?:karat|carat|k)", Pattern.CASE_INSENSITIVE);
+        Pattern b = Pattern.compile("22\\s*(?:k|karat|carat)\\s*gold\\s*/\\s*g\\D{0,12}([0-9][0-9,]{3,8})", Pattern.CASE_INSENSITIVE);
+        for (int i = 0; i < GOLD_URLS.length; i++) {
+            try {
+                String t = http(GOLD_URLS[i]).replaceAll("<[^>]+>", " ").replace("&nbsp;", " ").replaceAll("\\s+", " ");
+                long v = 0;
+                Matcher m = a.matcher(t);
+                if (m.find()) v = Long.parseLong(m.group(1).replace(",", ""));
+                if (v == 0) {
+                    m = b.matcher(t);
+                    if (m.find()) v = Long.parseLong(m.group(1).replace(",", ""));
+                }
+                if (v >= 3000 && v <= 60000) {
+                    final String s = v + "|" + new SimpleDateFormat("d MMM HH:mm", Locale.UK).format(new Date()) + " · " + GOLD_SOURCES[i];
+                    prefs.edit().putString("gold", s).apply();
+                    ui.post(new Runnable() { @Override public void run() { showGold(s); } });
+                    return;
+                }
+            } catch (Exception ignored) { }
+        }
+        ui.post(new Runnable() { @Override public void run() {
+            if (prefs.getString("gold", "").length() == 0) goldFoot.setText("No data");
+        } });
+    }
+
+    void fetchStocks() {
+        final List<Stock> out = new ArrayList<Stock>();
+        long latest = 0;
+        int ok = 0;
+        for (String[] s : STOCKS) {
+            if (Thread.currentThread().isInterrupted()) return;
+            try {
+                String url = "https://query1.finance.yahoo.com/v8/finance/chart/" + URLEncoder.encode(s[0] + ".NS", "UTF-8")
+                        + "?range=1d&interval=1d";
+                JSONObject meta = new JSONObject(http(url)).getJSONObject("chart").getJSONArray("result")
+                        .getJSONObject(0).getJSONObject("meta");
+                double price = meta.getDouble("regularMarketPrice");
+                double prev = meta.has("previousClose") ? meta.getDouble("previousClose") : meta.getDouble("chartPreviousClose");
+                if (prev <= 0) continue;
+                ok++;
+                latest = Math.max(latest, meta.optLong("regularMarketTime", 0));
+                if (price < prev) {
+                    Stock st = new Stock();
+                    st.name = s[1];
+                    st.price = price;
+                    st.change = price - prev;
+                    st.pct = (prev - price) / prev * 100.0;
+                    out.add(st);
+                }
+            } catch (Exception ignored) { }
+        }
+        if (ok == 0) {
+            ui.post(new Runnable() { @Override public void run() {
+                if (losers.isEmpty()) stockFoot.setText("No data");
+            } });
+            return;
+        }
+        Collections.sort(out, new Comparator<Stock>() {
+            @Override public int compare(Stock x, Stock y) { return Double.compare(x.pct, y.pct); }
+        });
+        String asOf = "";
+        if (latest > 0) {
+            SimpleDateFormat f = new SimpleDateFormat("d MMM HH:mm", Locale.UK);
+            f.setTimeZone(TimeZone.getTimeZone("Asia/Kolkata"));
+            asOf = f.format(new Date(latest * 1000L)) + " IST";
+        }
+        StringBuilder sb = new StringBuilder(asOf).append('\n').append(ok);
+        for (Stock st : out) sb.append('\n').append(st.name).append('|').append(st.price).append('|').append(st.change).append('|').append(st.pct);
+        final String packed = sb.toString();
+        prefs.edit().putString("stocks", packed).apply();
+        ui.post(new Runnable() { @Override public void run() { showStocks(packed); } });
+    }
+
+    // ---- data: show -------------------------------------------------------------------
+
+    void showCached() {
+        String w = prefs.getString("weather", "");
+        if (w.length() > 0) showWeather(w);
+        String g = prefs.getString("gold", "");
+        if (g.length() > 0) showGold(g);
+        String s = prefs.getString("stocks", "");
+        if (s.length() > 0) showStocks(s);
+    }
+
+    void showWeather(String s) {
+        try {
+            String[] p = s.split("\\|");
+            wHi.setText(p[0]); wLo.setText(p[1]); wCond.setText(p[2]); wSub.setText(p[3]);
+            tHi.setText(p[4]); tLo.setText(p[5]); tCond.setText(p[6]); tSub.setText(p[7]);
+        } catch (Exception ignored) { }
+    }
+
+    static String inr(long v) {
+        String s = String.valueOf(Math.abs(v));
+        if (s.length() > 3) {
+            String last = s.substring(s.length() - 3), rest = s.substring(0, s.length() - 3);
+            StringBuilder sb = new StringBuilder();
+            while (rest.length() > 2) {
+                sb.insert(0, "," + rest.substring(rest.length() - 2));
+                rest = rest.substring(0, rest.length() - 2);
+            }
+            s = rest + sb + "," + last;
+        }
+        return "₹" + s;
+    }
+
+    static String inr2(double v) {
+        long total = Math.round(Math.abs(v) * 100.0);
+        long paise = total % 100;
+        return inr(total / 100) + "." + (paise < 10 ? "0" : "") + paise;
+    }
+
+    void showGold(String s) {
+        try {
+            String[] p = s.split("\\|");
+            long v = Long.parseLong(p[0]);
+            goldPrice.setText(inr(v));
+            goldEight.setText(inr(v * 8));
+            goldTen.setText(inr(v * 10));
+            goldFoot.setText(p.length > 1 ? p[1] : "");
+        } catch (Exception ignored) { }
+    }
+
+    void showStocks(String packed) {
+        try {
+            String[] lines = packed.split("\n");
+            stockAsOf = lines[0];
+            losers.clear();
+            for (int i = 2; i < lines.length; i++) {
+                String[] p = lines[i].split("\\|");
+                Stock st = new Stock();
+                st.name = p[0];
+                st.price = Double.parseDouble(p[1]);
+                st.change = Double.parseDouble(p[2]);
+                st.pct = Double.parseDouble(p[3]);
+                losers.add(st);
+            }
+            stockDate.setText(stockAsOf);
+            stockRows.removeAllViews();
+            // The five biggest falls, shown smallest loss first.
+            int from = Math.max(0, losers.size() - 5);
+            for (int i = from; i < losers.size(); i++) stockRows.addView(stockRow(losers.get(i), 20, 34, false));
+            if (losers.isEmpty()) {
+                stockFoot.setText("No Nifty 50 stock is down");
+            } else {
+                stockFoot.setText(losers.size() + " of " + lines[1] + " down · press OK for the full list");
+            }
+        } catch (Exception ignored) { }
+    }
+
+    View stockRow(Stock st, float size, float height, boolean wide) {
+        LinearLayout r = new LinearLayout(this);
+        r.setOrientation(LinearLayout.HORIZONTAL);
+        r.setGravity(Gravity.CENTER_VERTICAL);
+        TextView n = text(st.name, size, WHITE, "sans-serif");
+        n.setSingleLine(true);
+        n.setEllipsize(TextUtils.TruncateAt.END);
+        r.addView(n, new LinearLayout.LayoutParams(0, WRAP, 1f));
+        TextView p = text(inr2(st.price), size, DIM, "sans-serif");
+        p.setGravity(Gravity.END);
+        r.addView(p, lp(px(wide ? 170 : 108), WRAP));
+        if (wide) {
+            TextView c = text("−" + inr2(st.change), size, LOSS, "sans-serif");
+            c.setGravity(Gravity.END);
+            r.addView(c, lp(px(150), WRAP));
+        }
+        TextView pc = text("−" + String.format(Locale.UK, "%.2f", st.pct) + "%", size, LOSS, "sans-serif-medium");
+        pc.setGravity(Gravity.END);
+        r.addView(pc, lp(px(wide ? 130 : 84), WRAP));
+        r.setLayoutParams(lp(MATCH, px(height)));
+        return r;
+    }
+
+    void showStockList() {
+        if (losers.isEmpty()) {
+            toast("No stock data yet");
+            return;
+        }
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        list.setPadding(px(40), px(8), px(40), px(24));
+        TextView sub = text(stockAsOf + " · " + losers.size() + " stocks down · smallest to biggest loss", 19, DIM, "sans-serif");
+        sub.setPadding(0, 0, 0, px(14));
+        list.addView(sub);
+        for (Stock st : losers) list.addView(stockRow(st, 23, 52, true));
+        ScrollView sv = new ScrollView(this);
+        sv.setFocusable(true);
+        sv.addView(list, new FrameLayout.LayoutParams(px(900), WRAP));
+        AlertDialog d = new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setTitle("Nifty 50 fallers")
+                .setView(sv)
+                .setPositiveButton("Close", null)
+                .create();
+        d.show();
+        if (d.getWindow() != null) d.getWindow().setLayout(px(980), px(860));
+        sv.requestFocus();
+    }
+}
