@@ -122,6 +122,9 @@ public class MainActivity extends Activity {
     final Handler ui = new Handler(Looper.getMainLooper());
     final ExecutorService io = Executors.newSingleThreadExecutor();
     final ExecutorService appIo = Executors.newSingleThreadExecutor();
+    final ExecutorService stockLead = Executors.newSingleThreadExecutor();
+    final ExecutorService stockIo = Executors.newFixedThreadPool(4);
+    String goldErr = "page layout changed";
     final Map<String, AppItem> apps = new LinkedHashMap<String, AppItem>();
     final List<Stock> losers = new ArrayList<Stock>();
     String stockAsOf = "";
@@ -175,6 +178,8 @@ public class MainActivity extends Activity {
         super.onDestroy();
         io.shutdownNow();
         appIo.shutdownNow();
+        stockLead.shutdownNow();
+        stockIo.shutdownNow();
     }
 
     /** Home screen: Back does nothing. */
@@ -845,7 +850,7 @@ public class MainActivity extends Activity {
         lastFetch = System.currentTimeMillis();
         io.execute(new Runnable() { @Override public void run() { fetchWeather(); } });
         io.execute(new Runnable() { @Override public void run() { fetchGold(); } });
-        io.execute(new Runnable() { @Override public void run() { fetchStocks(); } });
+        stockLead.execute(new Runnable() { @Override public void run() { fetchStocks(); } });
     }
 
     String http(String url) throws Exception {
@@ -912,8 +917,9 @@ public class MainActivity extends Activity {
             prefs.edit().putString("weather", s).apply();
             ui.post(new Runnable() { @Override public void run() { showWeather(s); } });
         } catch (Exception e) {
+            final String reason = why(e);
             ui.post(new Runnable() { @Override public void run() {
-                if (prefs.getString("weather", "").length() == 0) { wCond.setText("No data"); tCond.setText("No data"); }
+                if (prefs.getString("weather", "").length() == 0) { wCond.setText("No data"); wSub.setText(reason); tCond.setText("No data"); }
             } });
         }
     }
@@ -957,42 +963,77 @@ public class MainActivity extends Activity {
                     ui.post(new Runnable() { @Override public void run() { showGold(s); } });
                     return;
                 }
-            } catch (Exception ignored) { }
+            } catch (Exception e) {
+                goldErr = why(e);
+            }
         }
         ui.post(new Runnable() { @Override public void run() {
-            if (prefs.getString("gold", "").length() == 0) goldFoot.setText("No data");
+            if (prefs.getString("gold", "").length() == 0) goldFoot.setText("No data: " + goldErr);
         } });
+    }
+
+    /** A short reason for a failed download, shown in the widget so problems can be reported. */
+    static String why(Exception e) {
+        String m = e.getMessage();
+        String s = e.getClass().getSimpleName() + (m == null ? "" : " " + m);
+        return s.length() > 44 ? s.substring(0, 44) : s;
+    }
+
+    JSONObject stockMeta(String symbol) throws Exception {
+        String path = "/v8/finance/chart/" + URLEncoder.encode(symbol + ".NS", "UTF-8") + "?range=1d&interval=1d";
+        String body;
+        try {
+            body = http("https://query1.finance.yahoo.com" + path);
+        } catch (Exception first) {
+            body = http("https://query2.finance.yahoo.com" + path);
+        }
+        return new JSONObject(body).getJSONObject("chart").getJSONArray("result").getJSONObject(0).getJSONObject("meta");
     }
 
     void fetchStocks() {
         final List<Stock> out = new ArrayList<Stock>();
-        long latest = 0;
-        int ok = 0;
-        for (String[] s : STOCKS) {
-            if (Thread.currentThread().isInterrupted()) return;
-            try {
-                String url = "https://query1.finance.yahoo.com/v8/finance/chart/" + URLEncoder.encode(s[0] + ".NS", "UTF-8")
-                        + "?range=1d&interval=1d";
-                JSONObject meta = new JSONObject(http(url)).getJSONObject("chart").getJSONArray("result")
-                        .getJSONObject(0).getJSONObject("meta");
-                double price = meta.getDouble("regularMarketPrice");
-                double prev = meta.has("previousClose") ? meta.getDouble("previousClose") : meta.getDouble("chartPreviousClose");
-                if (prev <= 0) continue;
-                ok++;
-                latest = Math.max(latest, meta.optLong("regularMarketTime", 0));
-                if (price < prev) {
-                    Stock st = new Stock();
-                    st.name = s[1];
-                    st.price = price;
-                    st.change = price - prev;
-                    st.pct = (prev - price) / prev * 100.0;
-                    out.add(st);
+        final long[] latestBox = {0};
+        final int[] okBox = {0};
+        final String[] errBox = {"no answer"};
+        List<java.util.concurrent.Callable<Void>> jobs = new ArrayList<java.util.concurrent.Callable<Void>>();
+        for (final String[] s : STOCKS) {
+            jobs.add(new java.util.concurrent.Callable<Void>() {
+                @Override public Void call() {
+                    try {
+                        JSONObject meta = stockMeta(s[0]);
+                        double price = meta.getDouble("regularMarketPrice");
+                        double prev = meta.has("previousClose") ? meta.getDouble("previousClose") : meta.getDouble("chartPreviousClose");
+                        if (prev <= 0) return null;
+                        synchronized (out) {
+                            okBox[0]++;
+                            latestBox[0] = Math.max(latestBox[0], meta.optLong("regularMarketTime", 0));
+                            if (price < prev) {
+                                Stock st = new Stock();
+                                st.name = s[1];
+                                st.price = price;
+                                st.change = price - prev;
+                                st.pct = (prev - price) / prev * 100.0;
+                                out.add(st);
+                            }
+                        }
+                    } catch (Exception e) {
+                        errBox[0] = why(e);
+                    }
+                    return null;
                 }
-            } catch (Exception ignored) { }
+            });
         }
+        try {
+            stockIo.invokeAll(jobs);
+        } catch (Exception e) {
+            return;
+        }
+        final long latest = latestBox[0];
+        final int ok = okBox[0];
         if (ok == 0) {
+            final String reason = errBox[0];
             ui.post(new Runnable() { @Override public void run() {
-                if (losers.isEmpty()) stockFoot.setText("No data");
+                if (losers.isEmpty()) stockFoot.setText("No data: " + reason);
             } });
             return;
         }
