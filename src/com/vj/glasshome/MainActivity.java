@@ -623,9 +623,11 @@ public class MainActivity extends Activity {
         for (AppItem a : apps.values()) {
             if (!favs.contains(a.pkg)) allRow.addView(makeTile(a));
         }
+        // The last tile in the shelf opens the favourites picker, so the shelf is always reachable.
         boolean empty = favRow.getChildCount() == 0;
-        favHint.setVisibility(empty ? View.VISIBLE : View.GONE);
-        favScroll.setVisibility(empty ? View.INVISIBLE : View.VISIBLE);
+        favRow.addView(makeEditTile(empty));
+        favHint.setVisibility(View.GONE);
+        favScroll.setVisibility(View.VISIBLE);
 
         View target = null;
         if (focusPkg != null) {
@@ -713,6 +715,82 @@ public class MainActivity extends Activity {
         p.rightMargin = px(32);
         box.setLayoutParams(p);
         return box;
+    }
+
+    View makeEditTile(boolean empty) {
+        final LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setGravity(Gravity.CENTER_HORIZONTAL);
+        box.setClipChildren(false);
+        box.setFocusable(true);
+        box.setClickable(true);
+
+        final FrameLayout frame = new FrameLayout(this);
+        frame.setBackground(glass(24, 0x26FFFFFF, 0x66FFFFFF, 1));
+        TextView plus = text("+", 64, WHITE, "sans-serif-light");
+        plus.setGravity(Gravity.CENTER);
+        frame.addView(plus, new FrameLayout.LayoutParams(MATCH, MATCH));
+        box.addView(frame, lp(px(257), px(145)));
+
+        final TextView label = text(empty ? "Add favourites" : "Edit favourites", 19, SOFT, "sans-serif-medium");
+        label.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams lpL = lp(px(257), px(26));
+        lpL.topMargin = px(14);
+        box.addView(label, lpL);
+
+        box.setOnFocusChangeListener(new View.OnFocusChangeListener() {
+            @Override public void onFocusChange(View v, boolean f) {
+                frame.animate().scaleX(f ? 1.12f : 1f).scaleY(f ? 1.12f : 1f).setDuration(150).start();
+                frame.setBackground(f ? glass(24, 0x40FFFFFF, 0xE6FFFFFF, 4) : glass(24, 0x26FFFFFF, 0x66FFFFFF, 1));
+                label.setTextColor(f ? WHITE : SOFT);
+            }
+        });
+        box.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) { showFavPicker(); }
+        });
+
+        LinearLayout.LayoutParams p = lp(WRAP, WRAP);
+        p.rightMargin = px(32);
+        box.setLayoutParams(p);
+        return box;
+    }
+
+    /** A tick list of every app; ticked apps become favourites, keeping their existing order. */
+    void showFavPicker() {
+        final List<AppItem> all = new ArrayList<AppItem>(apps.values());
+        if (all.isEmpty()) {
+            toast("No apps found yet");
+            return;
+        }
+        final List<String> favs = getFavs();
+        String[] names = new String[all.size()];
+        final boolean[] on = new boolean[all.size()];
+        for (int i = 0; i < all.size(); i++) {
+            names[i] = all.get(i).label;
+            on[i] = favs.contains(all.get(i).pkg);
+        }
+        new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setTitle("Choose favourites")
+                .setMultiChoiceItems(names, on, new DialogInterface.OnMultiChoiceClickListener() {
+                    @Override public void onClick(DialogInterface d, int which, boolean checked) { on[which] = checked; }
+                })
+                .setPositiveButton("Done", new DialogInterface.OnClickListener() {
+                    @Override public void onClick(DialogInterface d, int which) {
+                        List<String> out = new ArrayList<String>();
+                        for (String p : favs) {
+                            for (int i = 0; i < all.size(); i++) {
+                                if (on[i] && all.get(i).pkg.equals(p)) out.add(p);
+                            }
+                        }
+                        for (int i = 0; i < all.size(); i++) {
+                            if (on[i] && !out.contains(all.get(i).pkg)) out.add(all.get(i).pkg);
+                        }
+                        saveFavs(out);
+                        rebuildRows(out.isEmpty() ? null : out.get(0));
+                    }
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
     }
 
     void showAppMenu(final AppItem a) {
