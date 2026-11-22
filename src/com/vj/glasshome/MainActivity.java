@@ -136,7 +136,7 @@ public class MainActivity extends Activity {
     HorizontalScrollView favScroll;
     TextView favHint, goldPrice, goldTen, goldEight, goldFoot, stockDate, stockFoot;
     TextView wHi, wLo, wCond, wSub, tHi, tLo, tCond, tSub, tTitle;
-    LinearLayout hourRow;
+    LinearLayout hourRow, hourRow2;
 
     final Runnable ticker = new Runnable() {
         @Override public void run() {
@@ -288,7 +288,7 @@ public class MainActivity extends Activity {
         shelf.addView(favTitle, lp(WRAP, WRAP));
         FrameLayout favHolder = new FrameLayout(this);
         favHolder.setClipChildren(false);
-        favScroll = new HorizontalScrollView(this);
+        favScroll = new SnapScroll(this, px(289), 6);
         favRow = makeRow(favScroll);
         favHolder.addView(favScroll, new FrameLayout.LayoutParams(MATCH, WRAP));
         favHint = text("Hold OK on any app below to add it here", 22, SOFT, "sans-serif");
@@ -308,7 +308,7 @@ public class MainActivity extends Activity {
         TextView moreTitle = text("More apps", 22, SOFT, "sans-serif-medium");
         moreTitle.setPadding(px(16), 0, 0, px(6));
         more.addView(moreTitle, lp(WRAP, WRAP));
-        HorizontalScrollView allScroll = new HorizontalScrollView(this);
+        HorizontalScrollView allScroll = new SnapScroll(this, px(289), 6);
         allRow = makeRow(allScroll);
         more.addView(allScroll, lp(MATCH, WRAP));
         LinearLayout.LayoutParams mp = lp(MATCH, WRAP);
@@ -340,7 +340,7 @@ public class MainActivity extends Activity {
     LinearLayout makeRow(HorizontalScrollView sv) {
         sv.setHorizontalScrollBarEnabled(false);
         sv.setClipToPadding(false);
-        sv.setClipChildren(false);
+        sv.setClipChildren(true);
         sv.setPadding(px(16), px(12), px(16), px(12));
         sv.setFocusable(false);
         LinearLayout row = new LinearLayout(this);
@@ -387,7 +387,7 @@ public class MainActivity extends Activity {
         TextClock time = new TextClock(this);
         time.setFormat24Hour("HH:mm");
         time.setFormat12Hour("HH:mm");
-        time.setTextSize(TypedValue.COMPLEX_UNIT_PX, 120 * u);
+        time.setTextSize(TypedValue.COMPLEX_UNIT_PX, 104 * u);
         time.setTextColor(WHITE);
         time.setTypeface(Typeface.create("sans-serif-light", Typeface.NORMAL));
         time.setIncludeFontPadding(false);
@@ -396,10 +396,10 @@ public class MainActivity extends Activity {
         TextClock date = new TextClock(this);
         date.setFormat24Hour("EEEE d MMMM");
         date.setFormat12Hour("EEEE d MMMM");
-        date.setTextSize(TypedValue.COMPLEX_UNIT_PX, 22 * u);
+        date.setTextSize(TypedValue.COMPLEX_UNIT_PX, 20 * u);
         date.setTextColor(SOFT);
         date.setAllCaps(true);
-        date.setLetterSpacing(0.12f);
+        date.setLetterSpacing(0.06f);
         date.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
         LinearLayout.LayoutParams dp = lp(WRAP, WRAP);
         dp.topMargin = px(10);
@@ -409,7 +409,7 @@ public class MainActivity extends Activity {
         // Gold
         LinearLayout gold = card(24, 22, 28);
         gold.addView(caps("22K gold · Chennai", 17, GOLD));
-        goldPrice = text("—", 60, WHITE, "sans-serif-medium");
+        goldPrice = text("—", 52, WHITE, "sans-serif-medium");
         LinearLayout.LayoutParams gp = lp(WRAP, WRAP);
         gp.topMargin = px(14);
         gold.addView(goldPrice, gp);
@@ -423,8 +423,8 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams gf = lp(WRAP, WRAP);
         gf.topMargin = px(6);
         gold.addView(goldFoot, gf);
-        LinearLayout.LayoutParams gl = lp(px(300), MATCH);
-        gl.rightMargin = px(24);
+        LinearLayout.LayoutParams gl = lp(px(280), MATCH);
+        gl.rightMargin = px(20);
         top.addView(gold, gl);
 
         // Stocks
@@ -454,8 +454,8 @@ public class MainActivity extends Activity {
         stock.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) { showStockList(); }
         });
-        LinearLayout.LayoutParams sl = lp(px(420), MATCH);
-        sl.rightMargin = px(24);
+        LinearLayout.LayoutParams sl = lp(px(400), MATCH);
+        sl.rightMargin = px(20);
         top.addView(stock, sl);
 
         // Weather today
@@ -480,7 +480,7 @@ public class MainActivity extends Activity {
         hourRow = new LinearLayout(this);
         hourRow.setOrientation(LinearLayout.HORIZONTAL);
         w1.addView(hourRow, lp(MATCH, WRAP));
-        LinearLayout.LayoutParams w1p = lp(px(376), MATCH);
+        LinearLayout.LayoutParams w1p = lp(px(344), MATCH);
         w1p.rightMargin = px(16);
         top.addView(w1, w1p);
 
@@ -503,7 +503,11 @@ public class MainActivity extends Activity {
         w2.addView(tCond);
         tSub = text("", 16, DIM, "sans-serif");
         w2.addView(tSub);
-        top.addView(w2, lp(px(186), WRAP));
+        w2.addView(spacer());
+        hourRow2 = new LinearLayout(this);
+        hourRow2.setOrientation(LinearLayout.HORIZONTAL);
+        w2.addView(hourRow2, lp(MATCH, WRAP));
+        top.addView(w2, lp(px(344), MATCH));
 
         return top;
     }
@@ -633,6 +637,8 @@ public class MainActivity extends Activity {
         favRow.addView(makeEditTile(empty));
         favHint.setVisibility(View.GONE);
         favScroll.setVisibility(View.VISIBLE);
+        trimLastGap(favRow);
+        trimLastGap(allRow);
 
         View target = null;
         if (focusPkg != null) {
@@ -895,14 +901,16 @@ public class MainActivity extends Activity {
             JSONArray hi = d.getJSONArray("temperature_2m_max"), lo = d.getJSONArray("temperature_2m_min");
             JSONArray code = d.getJSONArray("weather_code"), rain = d.getJSONArray("precipitation_probability_max");
             JSONArray days = d.getJSONArray("time");
-            // Today in eight three-hour steps: hour, temperature, chance of rain.
-            StringBuilder hours = new StringBuilder();
+            // Today and tomorrow in eight three-hour steps each: hour, temperature, chance of rain.
+            StringBuilder hours = new StringBuilder(), hours2 = new StringBuilder();
             try {
                 JSONObject hr = j.getJSONObject("hourly");
                 JSONArray ht = hr.getJSONArray("temperature_2m"), hp = hr.getJSONArray("precipitation_probability");
-                for (int i = 0; i < 24 && i < ht.length(); i += 3) {
-                    if (hours.length() > 0) hours.append(';');
-                    hours.append(i < 10 ? "0" : "").append(i).append(',').append(deg(ht.getDouble(i))).append(',').append(hp.optInt(i, 0)).append('%');
+                for (int i = 0; i < 48 && i < ht.length(); i += 3) {
+                    StringBuilder sb = i < 24 ? hours : hours2;
+                    int h = i % 24;
+                    if (sb.length() > 0) sb.append(';');
+                    sb.append(h < 10 ? "0" : "").append(h).append(',').append(deg(ht.getDouble(i))).append(',').append(hp.optInt(i, 0)).append('%');
                 }
             } catch (Exception ignored) { }
             String tomorrow = "Tomorrow";
@@ -913,7 +921,7 @@ public class MainActivity extends Activity {
             final String s = deg(hi.getDouble(0)) + "|" + deg(lo.getDouble(0)) + "|" + wmo(cur.optInt("weather_code", code.getInt(0)))
                     + "|Now " + deg(cur.getDouble("temperature_2m")) + " · rain " + rain.optInt(0, 0) + "%"
                     + "|" + deg(hi.getDouble(1)) + "|" + deg(lo.getDouble(1)) + "|" + wmo(code.getInt(1))
-                    + "|" + tomorrow + " · rain " + rain.optInt(1, 0) + "%" + "|" + hours;
+                    + "|" + tomorrow + " · rain " + rain.optInt(1, 0) + "%" + "|" + hours + "|" + hours2;
             prefs.edit().putString("weather", s).apply();
             ui.post(new Runnable() { @Override public void run() { showWeather(s); } });
         } catch (Exception e) {
@@ -1069,31 +1077,65 @@ public class MainActivity extends Activity {
             String[] p = s.split("\\|");
             wHi.setText(p[0]); wLo.setText(p[1]); wCond.setText(p[2]); wSub.setText(p[3]);
             tHi.setText(p[4]); tLo.setText(p[5]); tCond.setText(p[6]); tSub.setText(p[7]);
-            hourRow.removeAllViews();
-            if (p.length > 8 && p[8].length() > 0) {
-                int nowSlot = java.util.Calendar.getInstance(TimeZone.getTimeZone(WEATHER_TZ)).get(java.util.Calendar.HOUR_OF_DAY) / 3;
-                String[] slots = p[8].split(";");
-                for (int i = 0; i < slots.length; i++) {
-                    String[] f = slots[i].split(",");
-                    if (f.length < 3) continue;
-                    LinearLayout col = new LinearLayout(this);
-                    col.setOrientation(LinearLayout.VERTICAL);
-                    col.setPadding(0, px(8), 0, px(8));
-                    if (i == nowSlot) col.setBackground(glass(14, 0x2EFFFFFF, 0, 0));
-                    TextView hh = text(f[0], 15, DIM, "sans-serif");
-                    TextView tt = text(f[1], 19, WHITE, "sans-serif-medium");
-                    tt.setPadding(0, px(6), 0, px(6));
-                    TextView rr = text(f[2], 14, SKY, "sans-serif");
-                    hh.setGravity(Gravity.CENTER);
-                    tt.setGravity(Gravity.CENTER);
-                    rr.setGravity(Gravity.CENTER);
-                    col.addView(hh);
-                    col.addView(tt);
-                    col.addView(rr);
-                    hourRow.addView(col, new LinearLayout.LayoutParams(0, WRAP, 1f));
-                }
-            }
+            int nowSlot = java.util.Calendar.getInstance(TimeZone.getTimeZone(WEATHER_TZ)).get(java.util.Calendar.HOUR_OF_DAY) / 3;
+            fillHours(hourRow, p.length > 8 ? p[8] : "", nowSlot);
+            fillHours(hourRow2, p.length > 9 ? p[9] : "", -1);
         } catch (Exception ignored) { }
+    }
+
+    /** One day's strip: eight columns of hour, temperature and chance of rain. */
+    void fillHours(LinearLayout row, String data, int nowSlot) {
+        row.removeAllViews();
+        if (data.length() == 0) return;
+        String[] slots = data.split(";");
+        for (int i = 0; i < slots.length; i++) {
+            String[] f = slots[i].split(",");
+            if (f.length < 3) continue;
+            LinearLayout col = new LinearLayout(this);
+            col.setOrientation(LinearLayout.VERTICAL);
+            col.setGravity(Gravity.CENTER_HORIZONTAL);
+            col.setPadding(0, px(8), 0, px(8));
+            if (i == nowSlot) col.setBackground(glass(14, 0x2EFFFFFF, 0, 0));
+            TextView hh = text(f[0], 15, DIM, "sans-serif");
+            TextView tt = text(f[1], 19, WHITE, "sans-serif-medium");
+            tt.setPadding(0, px(6), 0, px(6));
+            TextView rr = text(f[2], 13, SKY, "sans-serif");
+            col.addView(hh);
+            col.addView(tt);
+            col.addView(rr);
+            row.addView(col, new LinearLayout.LayoutParams(0, WRAP, 1f));
+        }
+    }
+
+    /** Drop the gap after a row's last tile, so a full row lines up with the shelf edge. */
+    void trimLastGap(LinearLayout row) {
+        int n = row.getChildCount();
+        if (n == 0) return;
+        View last = row.getChildAt(n - 1);
+        LinearLayout.LayoutParams p = (LinearLayout.LayoutParams) last.getLayoutParams();
+        p.rightMargin = 0;
+        last.setLayoutParams(p);
+    }
+
+    /** A tile row that scrolls a whole tile at a time, so tiles stay on a fixed grid. */
+    static class SnapScroll extends HorizontalScrollView {
+        final int step, cols;
+
+        SnapScroll(android.content.Context c, int step, int cols) {
+            super(c);
+            this.step = step;
+            this.cols = cols;
+        }
+
+        @Override protected int computeScrollDeltaToGetChildRectOnScreen(android.graphics.Rect r) {
+            if (step <= 0 || getChildCount() == 0) return super.computeScrollDeltaToGetChildRectOnScreen(r);
+            int idx = Math.max(0, Math.round((r.left - getPaddingLeft()) / (float) step));
+            int first = Math.round(getScrollX() / (float) step);
+            if (idx < first) first = idx;
+            else if (idx > first + cols - 1) first = idx - cols + 1;
+            int max = Math.max(0, getChildAt(0).getWidth() + getPaddingLeft() + getPaddingRight() - getWidth());
+            return Math.min(first * step, max) - getScrollX();
+        }
     }
 
     static String inr(long v) {
