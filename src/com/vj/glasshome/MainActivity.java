@@ -38,6 +38,8 @@ import android.widget.ScrollView;
 import android.widget.TextClock;
 import android.widget.TextView;
 import android.widget.Toast;
+import android.widget.EditText;
+import android.speech.RecognizerIntent;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -134,6 +136,7 @@ public class MainActivity extends Activity {
 
     LinearLayout favRow, allRow, stockRows;
     HorizontalScrollView favScroll;
+    LinearLayout calRows;
     TextView favHint, goldPrice, goldTen, goldEight, goldFoot, stockDate, stockFoot;
     TextView wHi, wLo, wCond, wSub, tHi, tLo, tCond, tSub, tTitle;
     LinearLayout hourRow, hourRow2;
@@ -157,6 +160,7 @@ public class MainActivity extends Activity {
         if (u <= 0) u = 1f;
         buildUi();
         showCached();
+        takeCalendarLink(getIntent());
     }
 
     @Override protected void onResume() {
@@ -327,6 +331,9 @@ public class MainActivity extends Activity {
                 openSettings(Settings.ACTION_ACCESSIBILITY_SETTINGS);
             }
         }));
+        bar.addView(pill("Screensaver", new Runnable() {
+            @Override public void run() { openScreensaver(); }
+        }));
         bar.addView(pill("Refresh data", new Runnable() {
             @Override public void run() { toast("Refreshing"); refreshData(); }
         }));
@@ -387,7 +394,7 @@ public class MainActivity extends Activity {
         TextClock time = new TextClock(this);
         time.setFormat24Hour("HH:mm");
         time.setFormat12Hour("HH:mm");
-        time.setTextSize(TypedValue.COMPLEX_UNIT_PX, 104 * u);
+        time.setTextSize(TypedValue.COMPLEX_UNIT_PX, 96 * u);
         time.setTextColor(WHITE);
         time.setTypeface(Typeface.create("sans-serif-light", Typeface.NORMAL));
         time.setIncludeFontPadding(false);
@@ -404,6 +411,39 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams dp = lp(WRAP, WRAP);
         dp.topMargin = px(10);
         clock.addView(date, dp);
+        clock.addView(spacer());
+        final LinearLayout cal = card(18, 14, 22);
+        LinearLayout calHead = new LinearLayout(this);
+        calHead.addView(caps("Upcoming", 14, MINT), new LinearLayout.LayoutParams(0, WRAP, 1f));
+        calHead.addView(text("OK: add by voice", 13, DIM, "sans-serif"));
+        cal.addView(calHead, lp(MATCH, WRAP));
+        calRows = new LinearLayout(this);
+        calRows.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams crp = lp(MATCH, WRAP);
+        crp.topMargin = px(8);
+        cal.addView(calRows, crp);
+        cal.setFocusable(true);
+        cal.setClickable(true);
+        cal.setOnFocusChangeListener(new View.OnFocusChangeListener() {
+            @Override public void onFocusChange(View v, boolean f) {
+                cal.setBackground(f ? glass(22, 0xB30A0A16, 0xE6FFFFFF, 3) : glass(22, 0x800A0A16, 0x33FFFFFF, 1));
+                cal.animate().scaleX(f ? 1.04f : 1f).scaleY(f ? 1.04f : 1f).setDuration(150).start();
+            }
+        });
+        cal.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                if (calUrl().length() == 0) showCalSetup(); else startVoice();
+            }
+        });
+        cal.setOnLongClickListener(new View.OnLongClickListener() {
+            @Override public boolean onLongClick(View v) {
+                if (calUrl().length() == 0) showCalSetup(); else showCalList();
+                return true;
+            }
+        });
+        LinearLayout.LayoutParams cp = lp(MATCH, WRAP);
+        cp.rightMargin = px(20);
+        clock.addView(cal, cp);
         top.addView(clock, new LinearLayout.LayoutParams(0, MATCH, 1f));
 
         // Gold
@@ -856,6 +896,7 @@ public class MainActivity extends Activity {
         lastFetch = System.currentTimeMillis();
         io.execute(new Runnable() { @Override public void run() { fetchWeather(); } });
         io.execute(new Runnable() { @Override public void run() { fetchGold(); } });
+        io.execute(new Runnable() { @Override public void run() { fetchCalendar(); } });
         stockLead.execute(new Runnable() { @Override public void run() { fetchStocks(); } });
     }
 
@@ -1063,6 +1104,212 @@ public class MainActivity extends Activity {
 
     // ---- data: show -------------------------------------------------------------------
 
+    // ---- calendar ---------------------------------------------------------------------
+
+    static final int REQ_VOICE = 41;
+    static final int MINT = 0xFFA8F0C6;
+
+    interface TextCb { void got(String s); }
+
+    String calUrl() { return prefs.getString("cal_url", "").trim(); }
+
+    /** The link can also be set from a computer: adb shell am start -n com.vj.glasshome/.MainActivity --es calendar_url '...' */
+    void takeCalendarLink(Intent i) {
+        if (i == null) return;
+        String u = i.getStringExtra("calendar_url");
+        if (u != null && u.trim().startsWith("https://")) {
+            prefs.edit().putString("cal_url", u.trim()).apply();
+            toast("Calendar link saved");
+            io.execute(new Runnable() { @Override public void run() { fetchCalendar(); } });
+        }
+    }
+
+    @Override protected void onNewIntent(Intent i) {
+        super.onNewIntent(i);
+        takeCalendarLink(i);
+    }
+
+    String calCall(String extra) throws Exception {
+        String base = calUrl();
+        return http(base + (base.contains("?") ? "&" : "?") + extra);
+    }
+
+    void fetchCalendar() {
+        if (calUrl().length() == 0) {
+            ui.post(new Runnable() { @Override public void run() { showCalendar(""); } });
+            return;
+        }
+        try {
+            JSONObject j = new JSONObject(calCall("list=1"));
+            if (j.has("error")) throw new Exception(j.getString("error"));
+            final String packed = j.getJSONArray("events").toString();
+            prefs.edit().putString("cal", packed).apply();
+            ui.post(new Runnable() { @Override public void run() { showCalendar(packed); } });
+        } catch (Exception e) {
+            final String reason = why(e);
+            ui.post(new Runnable() { @Override public void run() {
+                if (prefs.getString("cal", "").length() == 0) {
+                    calRows.removeAllViews();
+                    calRows.addView(text("No data: " + reason, 15, DIM, "sans-serif"));
+                }
+            } });
+        }
+    }
+
+    String calWhen(JSONObject ev) {
+        Date d = new Date(ev.optLong("start", 0));
+        String day = new SimpleDateFormat("EEE d MMM", Locale.UK).format(d);
+        if (ev.optBoolean("allDay", false)) return day + " · all day";
+        return day + " · " + new SimpleDateFormat("HH:mm", Locale.UK).format(d);
+    }
+
+    void showCalendar(String packed) {
+        calRows.removeAllViews();
+        if (calUrl().length() == 0) {
+            calRows.addView(text("Press OK to connect your Google Calendar", 15, SOFT, "sans-serif"));
+            return;
+        }
+        try {
+            JSONArray evs = new JSONArray(packed.length() == 0 ? "[]" : packed);
+            if (evs.length() == 0) {
+                calRows.addView(text("Nothing in the next 30 days", 15, SOFT, "sans-serif"));
+                return;
+            }
+            for (int i = 0; i < Math.min(2, evs.length()); i++) {
+                JSONObject ev = evs.getJSONObject(i);
+                TextView when = text(calWhen(ev), 15, MINT, "sans-serif-medium");
+                TextView what = text(ev.optString("title", "(no title)"), 18, WHITE, "sans-serif");
+                what.setSingleLine(true);
+                what.setEllipsize(TextUtils.TruncateAt.END);
+                what.setPadding(0, px(3), 0, px(i == 0 ? 8 : 0));
+                calRows.addView(when);
+                calRows.addView(what, lp(MATCH, WRAP));
+            }
+        } catch (Exception ignored) { }
+    }
+
+    void askText(String title, String hint, String initial, final TextCb cb) {
+        final EditText et = new EditText(this);
+        et.setSingleLine(true);
+        et.setHint(hint);
+        et.setText(initial);
+        et.setSelection(et.getText().length());
+        new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setTitle(title)
+                .setView(et)
+                .setPositiveButton("OK", new DialogInterface.OnClickListener() {
+                    @Override public void onClick(DialogInterface d, int w) {
+                        String s = et.getText().toString().trim();
+                        if (s.length() > 0) cb.got(s);
+                    }
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+        et.requestFocus();
+    }
+
+    void showCalSetup() {
+        askText("Calendar link", "Your Apps Script web app link, ending in ?key=...", calUrl(), new TextCb() {
+            @Override public void got(String s) {
+                if (!s.startsWith("https://")) { toast("The link must start with https://"); return; }
+                prefs.edit().putString("cal_url", s).remove("cal").apply();
+                showCalendar("");
+                io.execute(new Runnable() { @Override public void run() { fetchCalendar(); } });
+            }
+        });
+    }
+
+    void startVoice() {
+        Intent i = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
+        i.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
+        i.putExtra(RecognizerIntent.EXTRA_PROMPT, "Say the appointment, for example: Dentist on Friday at 3 pm");
+        try {
+            startActivityForResult(i, REQ_VOICE);
+        } catch (Exception e) {
+            confirmAdd("");
+        }
+    }
+
+    @Override protected void onActivityResult(int req, int res, Intent data) {
+        super.onActivityResult(req, res, data);
+        if (req != REQ_VOICE || res != RESULT_OK || data == null) return;
+        ArrayList<String> said = data.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS);
+        if (said != null && !said.isEmpty()) confirmAdd(said.get(0));
+    }
+
+    /** Shows what was heard so it can be corrected, then adds it with Google Calendar's Quick Add. */
+    void confirmAdd(String heard) {
+        askText("Add appointment", "Dentist on Friday at 3 pm", heard, new TextCb() {
+            @Override public void got(final String s) {
+                toast("Adding…");
+                io.execute(new Runnable() { @Override public void run() { addEvent(s); } });
+            }
+        });
+    }
+
+    void addEvent(String s) {
+        String msg;
+        try {
+            JSONObject j = new JSONObject(calCall("add=" + URLEncoder.encode(s, "UTF-8")));
+            if (j.has("error")) throw new Exception(j.getString("error"));
+            JSONObject ev = new JSONObject();
+            ev.put("start", j.optLong("start", 0));
+            ev.put("allDay", j.optBoolean("allDay", false));
+            msg = "Added: " + j.optString("added", s) + ", " + calWhen(ev);
+        } catch (Exception e) {
+            msg = "Could not add it: " + why(e);
+        }
+        final String m = msg;
+        ui.post(new Runnable() { @Override public void run() { toast(m); } });
+        fetchCalendar();
+    }
+
+    void showCalList() {
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        list.setPadding(px(40), px(8), px(40), px(24));
+        try {
+            JSONArray evs = new JSONArray(prefs.getString("cal", "[]"));
+            if (evs.length() == 0) list.addView(text("No upcoming appointments", 21, SOFT, "sans-serif"));
+            for (int i = 0; i < evs.length(); i++) {
+                JSONObject ev = evs.getJSONObject(i);
+                LinearLayout r = new LinearLayout(this);
+                r.setGravity(Gravity.CENTER_VERTICAL);
+                r.addView(text(calWhen(ev), 21, MINT, "sans-serif-medium"), lp(px(300), WRAP));
+                TextView t = text(ev.optString("title", "(no title)"), 22, WHITE, "sans-serif");
+                t.setSingleLine(true);
+                t.setEllipsize(TextUtils.TruncateAt.END);
+                r.addView(t, new LinearLayout.LayoutParams(0, WRAP, 1f));
+                list.addView(r, lp(MATCH, px(52)));
+            }
+        } catch (Exception ignored) { }
+        ScrollView sv = new ScrollView(this);
+        sv.setFocusable(true);
+        sv.addView(list, new FrameLayout.LayoutParams(px(900), WRAP));
+        AlertDialog d = new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setTitle("Upcoming appointments")
+                .setView(sv)
+                .setPositiveButton("Add by voice", new DialogInterface.OnClickListener() {
+                    @Override public void onClick(DialogInterface di, int w) { startVoice(); }
+                })
+                .setNeutralButton("Change link", new DialogInterface.OnClickListener() {
+                    @Override public void onClick(DialogInterface di, int w) { showCalSetup(); }
+                })
+                .setNegativeButton("Close", null)
+                .create();
+        d.show();
+        if (d.getWindow() != null) d.getWindow().setLayout(px(980), px(860));
+    }
+
+    void openScreensaver() {
+        toast("Ambient mode → choose Google Photos and your albums");
+        try {
+            startActivity(new Intent(Settings.ACTION_DREAM_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        } catch (Exception e) {
+            openSettings(Settings.ACTION_SETTINGS);
+        }
+    }
+
     void showCached() {
         String w = prefs.getString("weather", "");
         if (w.length() > 0) showWeather(w);
@@ -1070,6 +1317,7 @@ public class MainActivity extends Activity {
         if (g.length() > 0) showGold(g);
         String s = prefs.getString("stocks", "");
         if (s.length() > 0) showStocks(s);
+        showCalendar(prefs.getString("cal", ""));
     }
 
     void showWeather(String s) {
