@@ -322,6 +322,11 @@ public class MainActivity extends Activity {
         // Bottom bar
         LinearLayout bar = new LinearLayout(this);
         bar.setGravity(Gravity.CENTER);
+        bar.addView(pill("Add appointment", new Runnable() {
+            @Override public void run() {
+                if (calUrl().length() == 0) showCalSetup(); else startVoice();
+            }
+        }));
         bar.addView(pill("TV settings", new Runnable() {
             @Override public void run() { openSettings(Settings.ACTION_SETTINGS); }
         }));
@@ -394,7 +399,7 @@ public class MainActivity extends Activity {
         TextClock time = new TextClock(this);
         time.setFormat24Hour("HH:mm");
         time.setFormat12Hour("HH:mm");
-        time.setTextSize(TypedValue.COMPLEX_UNIT_PX, 96 * u);
+        time.setTextSize(TypedValue.COMPLEX_UNIT_PX, 104 * u);
         time.setTextColor(WHITE);
         time.setTypeface(Typeface.create("sans-serif-light", Typeface.NORMAL));
         time.setIncludeFontPadding(false);
@@ -411,39 +416,6 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams dp = lp(WRAP, WRAP);
         dp.topMargin = px(10);
         clock.addView(date, dp);
-        clock.addView(spacer());
-        final LinearLayout cal = card(18, 14, 22);
-        LinearLayout calHead = new LinearLayout(this);
-        calHead.addView(caps("Upcoming", 14, MINT), new LinearLayout.LayoutParams(0, WRAP, 1f));
-        calHead.addView(text("OK: add by voice", 13, DIM, "sans-serif"));
-        cal.addView(calHead, lp(MATCH, WRAP));
-        calRows = new LinearLayout(this);
-        calRows.setOrientation(LinearLayout.VERTICAL);
-        LinearLayout.LayoutParams crp = lp(MATCH, WRAP);
-        crp.topMargin = px(8);
-        cal.addView(calRows, crp);
-        cal.setFocusable(true);
-        cal.setClickable(true);
-        cal.setOnFocusChangeListener(new View.OnFocusChangeListener() {
-            @Override public void onFocusChange(View v, boolean f) {
-                cal.setBackground(f ? glass(22, 0xB30A0A16, 0xE6FFFFFF, 3) : glass(22, 0x800A0A16, 0x33FFFFFF, 1));
-                cal.animate().scaleX(f ? 1.04f : 1f).scaleY(f ? 1.04f : 1f).setDuration(150).start();
-            }
-        });
-        cal.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) {
-                if (calUrl().length() == 0) showCalSetup(); else startVoice();
-            }
-        });
-        cal.setOnLongClickListener(new View.OnLongClickListener() {
-            @Override public boolean onLongClick(View v) {
-                if (calUrl().length() == 0) showCalSetup(); else showCalList();
-                return true;
-            }
-        });
-        LinearLayout.LayoutParams cp = lp(MATCH, WRAP);
-        cp.rightMargin = px(20);
-        clock.addView(cal, cp);
         top.addView(clock, new LinearLayout.LayoutParams(0, MATCH, 1f));
 
         // Gold
@@ -467,36 +439,33 @@ public class MainActivity extends Activity {
         gl.rightMargin = px(20);
         top.addView(gold, gl);
 
-        // Stocks
-        final LinearLayout stock = card(24, 22, 28);
-        LinearLayout head = new LinearLayout(this);
-        head.setOrientation(LinearLayout.HORIZONTAL);
-        head.addView(caps("Nifty 50 · fallers", 17, LOSS), new LinearLayout.LayoutParams(0, WRAP, 1f));
-        stockDate = text("", 15, DIM, "sans-serif");
-        head.addView(stockDate, lp(WRAP, WRAP));
-        stock.addView(head, lp(MATCH, WRAP));
-        stockRows = new LinearLayout(this);
-        stockRows.setOrientation(LinearLayout.VERTICAL);
-        LinearLayout.LayoutParams srp = lp(MATCH, WRAP);
-        srp.topMargin = px(12);
-        stock.addView(stockRows, srp);
-        stock.addView(spacer());
-        stockFoot = text("Loading", 17, SOFT, "sans-serif");
-        stock.addView(stockFoot, lp(MATCH, WRAP));
-        stock.setFocusable(true);
-        stock.setClickable(true);
-        stock.setOnFocusChangeListener(new View.OnFocusChangeListener() {
+        // Calendar
+        final LinearLayout cal = card(24, 22, 28);
+        LinearLayout calHead = new LinearLayout(this);
+        calHead.addView(caps("Upcoming", 17, MINT), new LinearLayout.LayoutParams(0, WRAP, 1f));
+        calHead.addView(text("Next 30 days", 15, DIM, "sans-serif"));
+        cal.addView(calHead, lp(MATCH, WRAP));
+        calRows = new LinearLayout(this);
+        calRows.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams crp = lp(MATCH, WRAP);
+        crp.topMargin = px(14);
+        cal.addView(calRows, crp);
+        cal.setFocusable(true);
+        cal.setClickable(true);
+        cal.setOnFocusChangeListener(new View.OnFocusChangeListener() {
             @Override public void onFocusChange(View v, boolean f) {
-                stock.setBackground(f ? glass(28, 0xB30A0A16, 0xE6FFFFFF, 3) : glass(28, 0x800A0A16, 0x33FFFFFF, 1));
-                stock.animate().scaleX(f ? 1.04f : 1f).scaleY(f ? 1.04f : 1f).setDuration(150).start();
+                cal.setBackground(f ? glass(28, 0xB30A0A16, 0xE6FFFFFF, 3) : glass(28, 0x800A0A16, 0x33FFFFFF, 1));
+                cal.animate().scaleX(f ? 1.04f : 1f).scaleY(f ? 1.04f : 1f).setDuration(150).start();
             }
         });
-        stock.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) { showStockList(); }
+        cal.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                if (calUrl().length() == 0) showCalSetup(); else showCalList();
+            }
         });
         LinearLayout.LayoutParams sl = lp(px(400), MATCH);
         sl.rightMargin = px(20);
-        top.addView(stock, sl);
+        top.addView(cal, sl);
 
         // Weather today
         LinearLayout w1 = card(20, 18, 24);
@@ -897,7 +866,6 @@ public class MainActivity extends Activity {
         io.execute(new Runnable() { @Override public void run() { fetchWeather(); } });
         io.execute(new Runnable() { @Override public void run() { fetchGold(); } });
         io.execute(new Runnable() { @Override public void run() { fetchCalendar(); } });
-        stockLead.execute(new Runnable() { @Override public void run() { fetchStocks(); } });
     }
 
     String http(String url) throws Exception {
@@ -1175,13 +1143,13 @@ public class MainActivity extends Activity {
                 calRows.addView(text("Nothing in the next 30 days", 15, SOFT, "sans-serif"));
                 return;
             }
-            for (int i = 0; i < Math.min(2, evs.length()); i++) {
+            for (int i = 0; i < Math.min(4, evs.length()); i++) {
                 JSONObject ev = evs.getJSONObject(i);
-                TextView when = text(calWhen(ev), 15, MINT, "sans-serif-medium");
-                TextView what = text(ev.optString("title", "(no title)"), 18, WHITE, "sans-serif");
+                TextView when = text(calWhen(ev), 16, MINT, "sans-serif-medium");
+                TextView what = text(ev.optString("title", "(no title)"), 20, WHITE, "sans-serif");
                 what.setSingleLine(true);
                 what.setEllipsize(TextUtils.TruncateAt.END);
-                what.setPadding(0, px(3), 0, px(i == 0 ? 8 : 0));
+                what.setPadding(0, px(3), 0, px(10));
                 calRows.addView(when);
                 calRows.addView(what, lp(MATCH, WRAP));
             }
@@ -1316,7 +1284,6 @@ public class MainActivity extends Activity {
         String g = prefs.getString("gold", "");
         if (g.length() > 0) showGold(g);
         String s = prefs.getString("stocks", "");
-        if (s.length() > 0) showStocks(s);
         showCalendar(prefs.getString("cal", ""));
     }
 
