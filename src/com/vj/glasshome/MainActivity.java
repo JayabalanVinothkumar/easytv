@@ -166,6 +166,7 @@ public class MainActivity extends Activity {
     @Override protected void onResume() {
         super.onResume();
         resumed = true;
+        applyPendingScreensaver();
         loadApps();
         ui.removeCallbacks(ticker);
         long wait = lastFetch == 0 ? 0 : Math.max(0, REFRESH_MS - (System.currentTimeMillis() - lastFetch));
@@ -331,7 +332,7 @@ public class MainActivity extends Activity {
             @Override public void run() { openSettings(Settings.ACTION_SETTINGS); }
         }));
         bar.addView(pill("Screensaver", new Runnable() {
-            @Override public void run() { openScreensaver(); }
+            @Override public void run() { showScreensaverMenu(); }
         }));
         bar.addView(pill("Refresh data", new Runnable() {
             @Override public void run() { toast("Refreshing"); refreshData(); }
@@ -1261,6 +1262,59 @@ public class MainActivity extends Activity {
                 .create();
         d.show();
         if (d.getWindow() != null) d.getWindow().setLayout(px(980), px(860));
+    }
+
+    // ---- screensaver start time -------------------------------------------------------
+
+    static final int[] SS_MIN = {1, 2, 5, 10, 15, 30};
+
+    static String mins(int m) { return m + (m == 1 ? " minute" : " minutes"); }
+
+    void showScreensaverMenu() {
+        int cur = -1;
+        try { cur = Settings.System.getInt(getContentResolver(), Settings.System.SCREEN_OFF_TIMEOUT) / 60000; } catch (Exception ignored) { }
+        final String[] items = new String[SS_MIN.length + 1];
+        for (int i = 0; i < SS_MIN.length; i++) {
+            items[i] = "Start after " + mins(SS_MIN[i]) + (SS_MIN[i] == cur ? "   ✓ current" : "");
+        }
+        items[SS_MIN.length] = "Choose photos (Ambient mode settings)";
+        new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setTitle("Screensaver")
+                .setItems(items, new DialogInterface.OnClickListener() {
+                    @Override public void onClick(DialogInterface d, int w) {
+                        if (w == SS_MIN.length) openScreensaver(); else setScreensaverDelay(SS_MIN[w]);
+                    }
+                })
+                .show();
+    }
+
+    /** The screensaver starts after the system's screen timeout; changing it needs "Modify system settings". */
+    void setScreensaverDelay(int minutes) {
+        if (Settings.System.canWrite(this)) {
+            try {
+                Settings.System.putInt(getContentResolver(), Settings.System.SCREEN_OFF_TIMEOUT, minutes * 60000);
+                prefs.edit().putInt("ss_min", minutes).remove("ss_pending").apply();
+                toast("Screensaver starts after " + mins(minutes));
+            } catch (Exception e) {
+                toast("Could not change it: " + why(e));
+            }
+            return;
+        }
+        prefs.edit().putInt("ss_pending", minutes).apply();
+        toast("Turn on \"Allow modifying system settings\" for Glass Home, then press Back");
+        try {
+            startActivity(new Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS, Uri.parse("package:" + getPackageName()))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        } catch (Exception e) {
+            toast("This TV has no page for that permission");
+        }
+    }
+
+    /** Applies a choice waiting for permission, or the 1-minute default the first time permission exists. */
+    void applyPendingScreensaver() {
+        int pending = prefs.getInt("ss_pending", 0);
+        if (pending == 0 && !prefs.contains("ss_min")) pending = 1;
+        if (pending > 0 && Settings.System.canWrite(this)) setScreensaverDelay(pending);
     }
 
     void openScreensaver() {
