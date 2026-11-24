@@ -330,12 +330,6 @@ public class MainActivity extends Activity {
         bar.addView(pill("TV settings", new Runnable() {
             @Override public void run() { openSettings(Settings.ACTION_SETTINGS); }
         }));
-        bar.addView(pill("Home button setup", new Runnable() {
-            @Override public void run() {
-                toast("Turn on \"Glass Home: Home button\" under Accessibility");
-                openSettings(Settings.ACTION_ACCESSIBILITY_SETTINGS);
-            }
-        }));
         bar.addView(pill("Screensaver", new Runnable() {
             @Override public void run() { openScreensaver(); }
         }));
@@ -1270,12 +1264,69 @@ public class MainActivity extends Activity {
     }
 
     void openScreensaver() {
-        toast("Ambient mode → choose Google Photos and your albums");
-        try {
-            startActivity(new Intent(Settings.ACTION_DREAM_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
-        } catch (Exception e) {
-            openSettings(Settings.ACTION_SETTINGS);
+        Intent target = findDreamSettings();
+        if (target != null) {
+            try {
+                toast("Choose Google Photos and your albums");
+                startActivity(target);
+                return;
+            } catch (Exception ignored) { }
         }
+        toast("Go to System → Ambient mode → Google Photos");
+        openSettings(Settings.ACTION_SETTINGS);
+    }
+
+    /** Finds the settings page of the TV's screensaver (Ambient mode) from the screensaver's own description. */
+    Intent findDreamSettings() {
+        PackageManager pm = getPackageManager();
+        String current = null;
+        try { current = Settings.Secure.getString(getContentResolver(), "screensaver_components"); } catch (Exception ignored) { }
+        List<ResolveInfo> dreams;
+        try {
+            dreams = pm.queryIntentServices(new Intent("android.service.dreams.DreamService"), PackageManager.GET_META_DATA);
+        } catch (Exception e) {
+            return null;
+        }
+        if (dreams == null) return null;
+        Intent best = null;
+        int bestScore = -1;
+        for (ResolveInfo r : dreams) {
+            android.content.pm.ServiceInfo si = r.serviceInfo;
+            if (si == null) continue;
+            String act = dreamSettingsActivity(pm, si);
+            if (act == null || act.length() == 0 || act.startsWith("@")) continue;
+            ComponentName cn;
+            if (act.contains("/")) cn = ComponentName.unflattenFromString(act);
+            else if (act.startsWith(".")) cn = new ComponentName(si.packageName, si.packageName + act);
+            else cn = new ComponentName(si.packageName, act);
+            if (cn == null) continue;
+            int score = 0;
+            if (si.packageName.startsWith("com.google")) score += 1;
+            if (current != null && current.contains(si.packageName)) score += 2;
+            if (score > bestScore) {
+                bestScore = score;
+                best = new Intent().setComponent(cn).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            }
+        }
+        return best;
+    }
+
+    String dreamSettingsActivity(PackageManager pm, android.content.pm.ServiceInfo si) {
+        android.content.res.XmlResourceParser p = null;
+        try {
+            p = si.loadXmlMetaData(pm, "android.service.dream");
+            if (p == null) return null;
+            int t;
+            while ((t = p.next()) != org.xmlpull.v1.XmlPullParser.END_DOCUMENT) {
+                if (t == org.xmlpull.v1.XmlPullParser.START_TAG) {
+                    return p.getAttributeValue("http://schemas.android.com/apk/res/android", "settingsActivity");
+                }
+            }
+        } catch (Exception ignored) {
+        } finally {
+            if (p != null) p.close();
+        }
+        return null;
     }
 
     void showCached() {
